@@ -283,7 +283,7 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    use_flash_attention_2=False,
+                    #use_flash_attention_2=False,
                     resume_download=True,
                 )
         else:
@@ -292,7 +292,7 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    use_flash_attention_2=False,
+                    #use_flash_attention_2=False,
                     resume_download=True,
                     quantization_config=transformers.BitsAndBytesConfig(
                         load_in_4bit=True,
@@ -309,7 +309,7 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    use_flash_attention_2=False,
+                    #use_flash_attention_2=False,
                     resume_download=True,
                 )
                 if self.codi.lm_head.in_features == self.decoder.lm_head.in_features:
@@ -329,7 +329,7 @@ class CODI(torch.nn.Module):
                         torch_dtype=(
                             torch.float16 if training_args.bf16 is False else torch.bfloat16
                         ),
-                        use_flash_attention_2=False,
+                        #use_flash_attention_2=False,
                         resume_download=True,
                     )
         
