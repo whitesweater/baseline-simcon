@@ -25,25 +25,25 @@ def test_euclidean_space():
     num_tokens = 5
     
     # Generate random latent tokens (simulating reasoning steps)
-    latent_tokens = [torch.randn(dim) for _ in range(num_tokens)]
+    latent_tokens = torch.randn(num_tokens, dim)
     
     # Initialize consistency computer
     consistency = TrajectoryConsistencyCenter(space_type='euclidean')
     
     # Compute Fréchet mean (should be arithmetic mean in Euclidean space)
-    center = consistency.compute_frechet_mean(latent_tokens)
+    center = consistency.frechet_mean(latent_tokens)
     print(f"\nFrechet mean shape: {center.shape}")
     
     # Verify it's the arithmetic mean
-    expected_mean = torch.mean(torch.stack(latent_tokens), dim=0)
+    expected_mean = torch.mean(latent_tokens, dim=0)
     assert torch.allclose(center, expected_mean, atol=1e-6), "Euclidean mean computation failed"
     print("✓ Frechet mean correctly computed as arithmetic mean")
     
     # Compute distances
-    distances = [torch.norm(token - center).item() for token in latent_tokens]
-    print(f"\nDistances from center: {[f'{d:.4f}' for d in distances]}")
-    print(f"Mean distance: {sum(distances)/len(distances):.4f}")
-    print(f"Max distance: {max(distances):.4f}")
+    distances = torch.norm(latent_tokens - center, dim=-1)
+    print(f"\nDistances from center: {[f'{d:.4f}' for d in distances.tolist()]}")
+    print(f"Mean distance: {distances.mean().item():.4f}")
+    print(f"Max distance: {distances.max().item():.4f}")
     
     # Test consistency loss with different thresholds
     for threshold in [1.0, 2.0, 5.0]:
@@ -51,7 +51,7 @@ def test_euclidean_space():
         print(f"\nConsistency loss (threshold={threshold:.1f}): {loss.item():.6f}")
         
         # Verify loss is 0 when all tokens are within threshold
-        if threshold > max(distances):
+        if threshold > distances.max():
             assert loss.item() < 1e-6, f"Loss should be 0 when threshold > max distance"
             print(f"  ✓ Loss is 0 (all tokens within radius)")
         else:
@@ -73,13 +73,14 @@ def test_hyperbolic_space():
     
     # Generate random latent tokens and project to hyperbolic space
     consistency = TrajectoryConsistencyCenter(space_type='hyperbolic', curvature=-1.0)
-    latent_tokens = [consistency.project_to_hyperbolic(torch.randn(dim) * 0.3) for _ in range(num_tokens)]
+    latent_tokens = torch.randn(num_tokens, dim) * 0.3
+    latent_tokens = consistency.project_to_hyperbolic(latent_tokens)
     
     print(f"\nNumber of tokens: {num_tokens}")
     print(f"Token dimension: {dim}")
     
     # Compute Frechet mean (Karcher mean)
-    center = consistency.hyperbolic_frechet_mean(latent_tokens, max_iter=50)
+    center = consistency.frechet_mean(latent_tokens, max_iter=50)
     print(f"\nFrechet mean shape: {center.shape}")
     print(f"Frechet mean norm: {torch.norm(center).item():.6f}")
     
@@ -134,12 +135,6 @@ def test_consistency_loss_module():
     # NOTE: Hyperbolic space skipped due to numerical stability issues
     # Recommended to use Euclidean space for production
     
-    # Test with list input
-    latent_list = [torch.randn(hidden_dim) for _ in range(num_steps)]
-    loss_list = loss_module_euclidean(latent_list)
-    print(f"\nEuclidean loss (list input): {loss_list.item():.6f}")
-    print("✓ Module works with list input")
-    
     # Test gradient flow
     latent_embeddings.requires_grad = True
     loss = loss_module_euclidean(latent_embeddings)
@@ -180,6 +175,7 @@ def test_integration_example():
         radius_threshold=2.0
     )
     
+    latent_embeddings_for_consistency = torch.stack(latent_embeddings_for_consistency)  # [T,B,D]
     loss = trajectory_loss(latent_embeddings_for_consistency)
     print(f"\nTrajectory consistency loss: {loss.item():.6f}")
     
