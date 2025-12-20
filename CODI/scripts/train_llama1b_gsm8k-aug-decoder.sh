@@ -1,20 +1,19 @@
-SAVE_DIR=/mnt/shared-storage-user/weixilin/MLLM/coconut/codi/outputs
+SAVE_DIR=/hpc2hdd/home/yhao481/jhupload/baseline/CODI/outputs
 
 mkdir -p "$SAVE_DIR"
-
-# cp scripts/train_28.20_ce_llama1b_dynamic-teacher_factor-exp_lat6.sh "$SAVE_DIR"
+export HF_ENDPOINT=https://hf-mirror.com
 
 python train.py \
 	--output_dir "$SAVE_DIR" \
   	--expt_name gsm8k_llama1b_latent_baseline-decoder-debug \
 	--logging_dir "$SAVE_DIR/logs"\
 	--logging_steps 10 \
-	--model_name_or_path /mnt/shared-storage-user/mllm/weixilin/Llama-3.2-1B-Instruct \
+	--model_name_or_path /hpc2hdd/home/yhao481/jhupload/modelscope/LLM-Research/Llama-3.2-1B-Instruct \
 	--data_name icot \
 	--seed 11 \
 	--model_max_length 512 \
-	--per_device_train_batch_size 64 \
-  	--gradient_accumulation_steps 2 \
+	--per_device_train_batch_size 32 \
+  	--gradient_accumulation_steps 4 \
 	--bf16 \
 	--num_train_epochs 10 \
 	--learning_rate 8e-4 \
