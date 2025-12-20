@@ -81,6 +81,7 @@ class CustomTrainer(Trainer):
                 "ce_loss": _to_scalar(outputs.get("ce_loss")),
                 "distill_loss": _to_scalar(outputs.get("distill_loss")),
                 "ref_ce_loss": _to_scalar(outputs.get("ref_ce_loss")),
+                "trajectory_loss": _to_scalar(outputs.get("trajectory_loss")),
             }
             if not hasattr(self, "is_global_zero") or self.is_global_zero:
                 self.log(logs)
@@ -267,7 +268,14 @@ def train():
 
             token_nums = []
             # import pdb; pdb.set_trace()
-            raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')            
+            # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')         
+            cached_data = torch.load('/hpc2hdd/home/yhao481/jhupload/SIM-CoT/CODI/cache/dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
+            self.data_dict = cached_data["data_dict"]
+            self.keys = cached_data["keys"]
+            logging.info(
+                f"✓ Cache loaded! {len(self)} samples across "
+            )
+            return    
             for num_iter, example in tqdm(enumerate(raw_data)):
                 if 'cot' not in example: 
                     example['cot'] = example['steps']
