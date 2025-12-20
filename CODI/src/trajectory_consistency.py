@@ -1,9 +1,18 @@
 import math
+import math
+
 import torch
 import torch.nn as nn
 
 
 class TrajectoryConsistencyCenter:
+    """
+    Compute trajectory consistency loss by constraining latent tokens
+    to stay within a radius around their Fréchet mean (geometric center).
+    
+    Supports both Euclidean and Hyperbolic spaces.
+    """
+    
     def __init__(self, space_type="euclidean", curvature=-1.0, eps=1e-8):
         assert space_type in ["euclidean", "hyperbolic"]
         if space_type == "hyperbolic":
@@ -25,6 +34,10 @@ class TrajectoryConsistencyCenter:
         norm = torch.linalg.norm(x, dim=-1, keepdim=True)  # [...,1]
         scale = torch.clamp(max_norm / (norm + self.eps), max=1.0)
         return x * scale
+
+    def project_to_hyperbolic(self, x):
+        """Alias for compatibility with existing callers."""
+        return self.project_to_ball(x)
 
     def mobius_add(self, x, y):
         """
@@ -109,19 +122,16 @@ class TrajectoryConsistencyCenter:
 
         # hyperbolic
         X = self.project_to_ball(X)
-        # init: mean in tangent@origin then exp back
         center = self.exp0(self.log0(X).mean(dim=0))  # [D]
         center = self.project_to_ball(center)
 
         for _ in range(max_iter):
-            # log_center(X) ≈ log0((-center) ⊕ X)
             v = self.log0(self.mobius_add(-center, X))  # [K,D]
             grad = v.mean(dim=0)                        # [D]
 
             if torch.linalg.norm(grad) < 1e-6:
                 break
 
-            # exp_center(-step*grad) ≈ center ⊕ exp0(-step*grad)
             center = self.mobius_add(center, self.exp0(-step_base * grad))
             center = self.project_to_ball(center)
 
@@ -147,11 +157,18 @@ class TrajectoryConsistencyCenter:
 
 
 class TrajectoryConsistencyLoss(nn.Module):
+    """
+    Wrapper module for trajectory consistency loss
+    """
+    
     def __init__(self, space_type="euclidean", radius_threshold=2.0, curvature=-1.0):
         super().__init__()
-        self.core = TrajectoryConsistencyCenter(space_type=space_type, curvature=curvature)
+        self.core = TrajectoryConsistencyCenter(
+            space_type=space_type,
+            curvature=curvature
+        )
         self.radius_threshold = radius_threshold
-
+    
     def forward(self, latent_embeddings: torch.Tensor):
         """
         latent_embeddings:
@@ -159,14 +176,22 @@ class TrajectoryConsistencyLoss(nn.Module):
           - [T,B,D]    : per-sample trajectory loss then mean over batch
         """
         if latent_embeddings.dim() == 2:
-            return self.core.center_based_consistency_loss(latent_embeddings, self.radius_threshold)
+            return self.core.center_based_consistency_loss(
+                latent_embeddings,
+                self.radius_threshold
+            )
 
         if latent_embeddings.dim() == 3:
-            T, B, D = latent_embeddings.shape
+            T, B, _ = latent_embeddings.shape
             losses = []
             for b in range(B):
                 Xb = latent_embeddings[:, b, :]  # [T,D]
-                losses.append(self.core.center_based_consistency_loss(Xb, self.radius_threshold))
+                losses.append(
+                    self.core.center_based_consistency_loss(
+                        Xb,
+                        self.radius_threshold
+                    )
+                )
             return torch.stack(losses).mean()
 
         raise ValueError(f"Unexpected tensor dimension: {latent_embeddings.dim()}")
