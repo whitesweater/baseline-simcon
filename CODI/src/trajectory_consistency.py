@@ -140,11 +140,38 @@ class TrajectoryConsistencyCenter:
     # ---------- Loss ----------
     def center_based_consistency_loss(self, X, radius_threshold=2.0):
         """
-        X: [K,D]
+        X: [K,D] or [B,K,D] for batched computation
         """
         if X.numel() == 0:
             return X.new_zeros(())
 
+        # Handle batched input [B,K,D]
+        if X.dim() == 3:
+            B, K, D = X.shape
+            # Compute center for each batch: [B,D]
+            if self.space_type == "euclidean":
+                center = X.mean(dim=1)  # [B,D]
+            else:
+                # Fallback to loop for hyperbolic (rare case)
+                centers = []
+                for b in range(B):
+                    centers.append(self.frechet_mean(X[b]))  # [D]
+                center = torch.stack(centers)  # [B,D]
+            
+            # Compute distances: [B,K]
+            if self.space_type == "euclidean":
+                dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
+            else:
+                # Vectorized hyperbolic distance
+                dist = torch.stack([
+                    self.hyperbolic_distance(X[b], center[b])
+                    for b in range(B)
+                ])  # [B,K]
+            
+            violation = torch.clamp(dist - radius_threshold, min=0.0)  # [B,K]
+            return violation.mean()
+        
+        # Original single-sample case [K,D]
         center = self.frechet_mean(X)
 
         if self.space_type == "euclidean":
@@ -173,7 +200,7 @@ class TrajectoryConsistencyLoss(nn.Module):
         """
         latent_embeddings:
           - [B,D]      : treat as K=B tokens
-          - [T,B,D]    : per-sample trajectory loss then mean over batch
+          - [T,B,D]    : per-sample trajectory, batched computation (OPTIMIZED)
         """
         if latent_embeddings.dim() == 2:
             return self.core.center_based_consistency_loss(
@@ -182,16 +209,12 @@ class TrajectoryConsistencyLoss(nn.Module):
             )
 
         if latent_embeddings.dim() == 3:
-            T, B, _ = latent_embeddings.shape
-            losses = []
-            for b in range(B):
-                Xb = latent_embeddings[:, b, :]  # [T,D]
-                losses.append(
-                    self.core.center_based_consistency_loss(
-                        Xb,
-                        self.radius_threshold
-                    )
-                )
-            return torch.stack(losses).mean()
+            # Transpose to [B,T,D] for batched computation
+            T, B, D = latent_embeddings.shape
+            X_batched = latent_embeddings.transpose(0, 1)  # [B,T,D]
+            return self.core.center_based_consistency_loss(
+                X_batched,
+                self.radius_threshold
+            )
 
         raise ValueError(f"Unexpected tensor dimension: {latent_embeddings.dim()}")
