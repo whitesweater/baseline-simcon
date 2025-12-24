@@ -1,4 +1,4 @@
-SAVE_DIR=/hpc2hdd/home/yhao481/jhupload/baseline/CODI/outputs
+SAVE_DIR=/data/user/yhao481/proj/baseline-simcon/CODI/outputs
 
 mkdir -p "$SAVE_DIR"
 export HF_ENDPOINT=https://hf-mirror.com
@@ -8,7 +8,7 @@ python train.py \
   	--expt_name gsm8k_llama1b_latent_baseline-decoder-debug \
 	--logging_dir "$SAVE_DIR/logs"\
 	--logging_steps 10 \
-	--model_name_or_path /hpc2hdd/home/yhao481/jhupload/modelscope/LLM-Research/Llama-3.2-1B-Instruct \
+	--model_name_or_path /data/user/yhao481/LLM-Research/Llama-3.2-1B-Instruct \
 	--data_name icot \
 	--seed 11 \
 	--model_max_length 512 \
