@@ -1,8 +1,8 @@
 # gsm-hard, multi-arith, svamp, gsm8k
-python test.py \
-	--data_name "multi-arith" \
-	--output_dir "$SAVE_DIR" \
-	--model_name_or_path /mnt/shared-storage-user/mllm/weixilin/Llama-3.2-1B-Instruct \
+uv run test.py \
+	--data_name "gsm8k" \
+	--output_dir /hpc2hdd/home/yhao481/jhupload/baseline/CODI/outputs/testoutput \
+	--model_name_or_path /hpc2hdd/home/yhao481/jhupload/modelscope/LLM-Research/Llama-3.2-1B-Instruct \
 	--seed 11 \
 	--model_max_length 512 \
 	--bf16 \
@@ -18,4 +18,4 @@ python test.py \
 	--inf_num_iterations 1 \
 	--remove_eos True \
 	--use_lora True \
-	--ckpt_dir /mnt/shared-storage-user/weixilin/MLLM/coconut/codi/outputs/gsm8k_llama1b_latent_baseline-decoder/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11
+	--ckpt_dir /hpc2hdd/home/yhao481/jhupload/baseline/CODI/outputs/gsm8k_llama1b_latent_decoder-trajectory-euclidean/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11/checkpoint-29990
