@@ -53,5 +53,5 @@ python train.py \
 	--use_decoder True \
 	--use_trajectory_consistency True \
 	--trajectory_space_type euclidean \
-	--trajectory_radius_threshold 2.0 \
+	--trajectory_radius_threshold 0.5 \
 	--trajectory_loss_factor 0.1

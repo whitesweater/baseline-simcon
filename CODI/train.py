@@ -340,7 +340,7 @@ def train():
             token_nums = []
             # import pdb; pdb.set_trace()
             # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')         
-            cached_data = torch.load('/hpc2hdd/home/yhao481/jhupload/SIM-CoT/CODI/cache/dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
+            cached_data = torch.load('/data/user/yhao481/proj/SIM-CoT/CODI/cache/dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
             self.data_dict = cached_data["data_dict"]
             self.keys = cached_data["keys"]
             logging.info(

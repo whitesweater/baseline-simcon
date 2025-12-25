@@ -7,6 +7,77 @@ This is a research codebase implementing **SIM-CoT** (Supervised Implicit Chain-
 - **Coconut/**: Original Coconut baseline with SIM-CoT extensions (GPT-2, LLaMA models)
 - **CODI/**: CODI baseline with decoder-based SIM-CoT (LLaMA 1B/3B/8B)
 
+## Environment Setup
+
+### Proxy Configuration (Required)
+**All network operations in this project require proxy configuration:**
+
+```bash
+# Set environment variables for proxy
+export http_proxy=http://127.0.0.1:3128
+export https_proxy=http://127.0.0.1:3128
+export HTTP_PROXY=http://127.0.0.1:3128
+export HTTPS_PROXY=http://127.0.0.1:3128
+```
+
+**Apply proxy for specific operations:**
+- **HuggingFace model downloads**: Proxy is automatically used via environment variables
+- **pip/conda installs**: `pip install --proxy http://127.0.0.1:3128 <package>`
+- **git operations**: `git config --global http.proxy http://127.0.0.1:3128`
+- **wget/curl**: `wget -e use_proxy=yes -e http_proxy=http://127.0.0.1:3128 <url>`
+
+Add proxy exports to your `~/.bashrc` or `~/.zshrc` for persistent configuration.
+
+### Network Restrictions & Mirrors
+- This HPC environment cannot access the public Internet directly. Always use the proxy above or internal mirrors.
+- Mirror portal (web): https://nexus.hpc.hkust-gz.edu.cn/
+- Ensure the domain `harbor.internal.com` is resolvable. If not, add DNS mapping via hosts on login nodes.
+
+#### PyPI via Internal Mirror
+- Global config inside a virtualenv:
+  ```bash
+  pip config set global.index-url http://harbor.internal.com:8081/repository/pypi-hkust/simple
+  pip config set install.trusted-host harbor.internal.com
+  ```
+- Temporary per-install:
+  ```bash
+  pip install <pkg> --index-url http://harbor.internal.com:8081/repository/pypi-hkust/simple --trusted-host harbor.internal.com
+  ```
+- List available versions:
+  ```bash
+  pip index versions <pkg> --index-url http://harbor.internal.com:8081/repository/pypi-hkust/simple --trusted-host harbor.internal.com
+  ```
+
+#### Conda via Internal Mirror
+- Global config:
+  ```bash
+  conda config --remove channels defaults
+  conda config --add channels http://harbor.internal.com:8081/repository/conda-hkust/main
+  conda config --add channels http://harbor.internal.com:8081/repository/conda-hkust/free
+  conda config --add channels http://harbor.internal.com:8081/repository/conda-hkust/msys2
+  conda config --add channels http://harbor.internal.com:8081/repository/conda-hkust/pro
+  conda config --add channels http://harbor.internal.com:8081/repository/conda-hkust/r
+  ```
+- Search available versions:
+  ```bash
+  conda search <pkg>
+  ```
+
+#### uv usage with Mirrors
+- uv reads indexes from `pyproject.toml`; this repo includes internal PyPI mirrors under `[[tool.uv.index]]`.
+- You can also install via uv’s pip frontend with mirror flags:
+  ```bash
+  uv pip install -r requirements.txt \
+    --index-url http://harbor.internal.com:8081/repository/pypi-hkust/simple \
+    --trusted-host harbor.internal.com
+  ```
+- If uv tries to download a managed CPython and fails, disable managed Python and use your local interpreter:
+  ```bash
+  export UV_NO_MANAGED_PYTHON=1
+  export UV_PYTHON="$(which python)"
+  uv sync --python "$UV_PYTHON"
+  ```
+
 ## Architecture Patterns
 
 ### Latent Token Mechanism
