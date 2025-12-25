@@ -18,8 +18,10 @@ from safetensors.torch import load_file
 from transformers.modeling_outputs import ModelOutput
 import random
 import copy
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from typing import List, Sequence, Iterable, Union, Optional
+from src.trajectory_consistency import TrajectoryConsistencyLoss
+from torch.profiler import record_function
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -31,7 +33,7 @@ class ModelArguments:
     lora_dropout: float = field(default=0.05, metadata={"help": "lora dropout"})
     full_precision: bool = field(default=True, metadata={"help": "whether use int4 for the base model"})
     use_decoder: bool = field(default=False, metadata={"help": 'use decoder'})
-    decoder_path: str = field(default=None)
+    decoder_path: str = field(default=None) 
     soft_weight: float = field(default=None, metadata={"help": "soft weight"})
     save_ablation: bool = field(
         default=False,
@@ -122,8 +124,13 @@ class TrainingArguments(transformers.TrainingArguments):
     include_last_cot: bool = field(default=False, metadata={"help": "Include the last CoT step in the training data."})
     fix_attn_mask: bool = field(default=False, metadata={"help": "Correct a bug about attention mask."})
     log_full: bool = field(default=False, metadata={"help": "Log all losses."})
-    print_loss: bool = field(default=True)
+    print_loss: bool = field(default=False)
     max_token_num: int = field(default=1000, metadata={"help": "Limit the longest data to avoid OOM."})
+    use_trajectory_consistency: bool = field(default=False, metadata={"help": "Use trajectory consistency loss based on Fréchet mean."})
+    trajectory_space_type: str = field(default="euclidean", metadata={"help": "Space type for trajectory consistency: 'euclidean' or 'hyperbolic'."})
+    trajectory_radius_threshold: float = field(default=2.0, metadata={"help": "Radius threshold for trajectory consistency loss."})
+    trajectory_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the trajectory consistency loss."})
+    trajectory_curvature: float = field(default=-1.0, metadata={"help": "Curvature constant for hyperbolic space (typically -1.0)."})
 
 def print_trainable_parameters(model):
     trainable_parameters = 0
@@ -283,7 +290,7 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    #use_flash_attention_2=False,
+                    # use_flash_attention_2=False,
                     resume_download=True,
                 )
         else:
@@ -292,7 +299,7 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    #use_flash_attention_2=False,
+                    # use_flash_attention_2=False,
                     resume_download=True,
                     quantization_config=transformers.BitsAndBytesConfig(
                         load_in_4bit=True,
@@ -309,7 +316,7 @@ class CODI(torch.nn.Module):
                     torch_dtype=(
                         torch.float16 if training_args.bf16 is False else torch.bfloat16
                     ),
-                    #use_flash_attention_2=False,
+                    # use_flash_attention_2=False,
                     resume_download=True,
                 )
                 if self.codi.lm_head.in_features == self.decoder.lm_head.in_features:
@@ -329,7 +336,7 @@ class CODI(torch.nn.Module):
                         torch_dtype=(
                             torch.float16 if training_args.bf16 is False else torch.bfloat16
                         ),
-                        #use_flash_attention_2=False,
+                        # use_flash_attention_2=False,
                         resume_download=True,
                     )
         
@@ -397,6 +404,16 @@ class CODI(torch.nn.Module):
         # general 
         self.fix_attn_mask = training_args.fix_attn_mask
 
+        # Trajectory Consistency Loss
+        self.use_trajectory_consistency = training_args.use_trajectory_consistency
+        self.trajectory_loss_factor = training_args.trajectory_loss_factor
+        if self.use_trajectory_consistency:
+            self.trajectory_consistency_loss = TrajectoryConsistencyLoss(
+                space_type=training_args.trajectory_space_type,
+                radius_threshold=training_args.trajectory_radius_threshold,
+                curvature=training_args.trajectory_curvature
+            )
+
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
             self.tokenizer.pad_token_id = self.pad_token_id
@@ -424,7 +441,7 @@ class CODI(torch.nn.Module):
             raise NotImplementedError
 
     def init(self):
-        print_trainable_parameters(self)
+        # print_trainable_parameters(self)
         if (
             self.training_args.restore_from is not None
             and self.training_args.restore_from != ""
@@ -480,7 +497,7 @@ class CODI(torch.nn.Module):
                 raise ValueError("no implementaion")
         
         if self.use_prj:
-            with autocast(dtype=torch.bfloat16, enabled=True):
+            with autocast("cuda",dtype=torch.bfloat16, enabled=True):
                 latent_embd = self.prj(latent_embd)
             # latent_embd = self.prj(latent_embd)
 
@@ -516,7 +533,7 @@ class CODI(torch.nn.Module):
                 explain_loss_total += 0.0
             else:
                 
-                with autocast(dtype=torch.bfloat16):
+                with autocast("cuda",dtype=torch.bfloat16):
                     explain_outputs = self.decoder(
                         inputs_embeds=explain_embds,
                         attention_mask=explain_attention_mask,
@@ -558,6 +575,10 @@ class CODI(torch.nn.Module):
         # Iterate over the latent embeddings
         distill_loss_total = 0
         ce_loss_total = 0
+        trajectory_loss_total = 0
+        
+        # Collect latent embeddings for trajectory consistency
+        latent_embeddings_for_consistency = []
 
         with torch.no_grad():
             ref_outputs = self.codi(input_ids=ref_input_ids, output_hidden_states=True, attention_mask=ref_attention_mask)
@@ -598,13 +619,18 @@ class CODI(torch.nn.Module):
             for i in range(num_latent):
                 # Implicit CoT generation
                 # import pdb; pdb.set_trace()
-                with autocast(dtype=torch.bfloat16):
+                with autocast("cuda",dtype=torch.bfloat16):
                     outputs = self.codi(inputs_embeds=latent_embd, use_cache=True, output_hidden_states=True, past_key_values=past_key_values)
                 # outputs = self.codi(inputs_embeds=latent_embd, use_cache=True, output_hidden_states=True, past_key_values=past_key_values)
                 past_key_values = outputs.past_key_values
                 latent_embd = outputs.hidden_states[-1][:, -1, :].unsqueeze(1)
+                
+                # Collect latent embeddings for trajectory consistency
+                if self.use_trajectory_consistency:
+                    latent_embeddings_for_consistency.append(latent_embd.squeeze(1))
+                
                 if self.use_prj:
-                    with autocast(dtype=torch.bfloat16, enabled=True):
+                    with autocast("cuda",dtype=torch.bfloat16, enabled=True):
                         latent_embd = self.prj(latent_embd)
                     # latent_embd = self.prj(latent_embd)
 
@@ -637,7 +663,7 @@ class CODI(torch.nn.Module):
                     if (explain_labels != -100).sum() == 0:
                         explain_loss_total += 0.0
                     else:
-                        with autocast(dtype=torch.bfloat16):
+                        with autocast("cuda",dtype=torch.bfloat16):
                             explain_outputs = self.decoder(
                                 inputs_embeds=explain_embds,
                                 attention_mask=explain_attention_mask,
@@ -682,7 +708,7 @@ class CODI(torch.nn.Module):
                         dynamic_mask = dynamic_mask.bool()
                     # Student task's output
 
-                    with autocast(dtype=torch.bfloat16):
+                    with autocast("cuda",dtype=torch.bfloat16):
                         outputs = self.codi(inputs_embeds=embds, use_cache=True, output_hidden_states=True, past_key_values=past_key_values, attention_mask=dynamic_mask) 
                     # outputs = self.codi(inputs_embeds=embds, use_cache=True, output_hidden_states=True, past_key_values=past_key_values, attention_mask=dynamic_mask) 
                     # Teacher task's output
@@ -728,6 +754,24 @@ class CODI(torch.nn.Module):
         ref_ce_loss = self.loss_fct(effective_ref_logits, ref_target_ids)
         ref_ce_loss *= self.ref_loss_factor 
 
+        # Calculate trajectory consistency loss
+        if self.use_trajectory_consistency and len(latent_embeddings_for_consistency) > 0:
+            # with record_function("trajectory_consistency_loss"):
+           
+            # Convert list of [B,D] tensors to [T,B,D] tensor
+            latent_embeddings_tensor = torch.stack(latent_embeddings_for_consistency, dim=0)
+            
+            # Debug info (only at step 0 and every 100 steps)
+            if self.print_loss and (step == 0 or step % 100 == 0):
+                print(f"\n[Trajectory] Device: {latent_embeddings_tensor.device}, "
+                        f"Shape: {latent_embeddings_tensor.shape}, "
+                        f"Space: {self.training_args.trajectory_space_type}")
+            
+            trajectory_loss_total = self.trajectory_consistency_loss(latent_embeddings_tensor)
+            trajectory_loss_total *= self.trajectory_loss_factor
+        else:
+            trajectory_loss_total = torch.tensor(0.0, device=ce_loss_total.device if ce_loss_total != 0 else ref_ce_loss.device)
+        
         # Weigh the distillation loss
         distill_loss *= self.distill_loss_factor
         distill_loss_total *= self.distill_loss_factor
@@ -737,11 +781,11 @@ class CODI(torch.nn.Module):
 
         if self.print_loss:
             if self.model_args.use_decoder:
-                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, explain_loss={explain_loss_total}')    
+                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, explain_loss={explain_loss_total}, trajectory_loss={trajectory_loss_total}')    
             else:
-                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}')
+                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, trajectory_loss={trajectory_loss_total}')
 
-        loss = ce_loss_total + distill_loss_total + ref_ce_loss
+        loss = ce_loss_total + distill_loss_total + ref_ce_loss + trajectory_loss_total
 
         if self.model_args.use_decoder:
             explain_loss_total = torch.as_tensor(explain_loss_total, device=loss.device, dtype=loss.dtype)
@@ -753,13 +797,15 @@ class CODI(torch.nn.Module):
             distill_loss_total = distill_loss_total.detach()
         if ref_ce_loss != 0:
             ref_ce_loss = ref_ce_loss.detach()
+        if trajectory_loss_total != 0:
+            trajectory_loss_total = trajectory_loss_total.detach()
         if self.model_args.use_decoder:
             if explain_loss_total != 0:
                 explain_loss_total = explain_loss_total.detach()
         # print(f"{ce_loss_total=}, {distill_loss_total=}, {ref_ce_loss=}, {explain_loss_total}")
 
         if self.model_args.use_decoder:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, 'explain_loss': explain_loss_total}
+            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, 'explain_loss': explain_loss_total, 'trajectory_loss': trajectory_loss_total}
         else:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss}
+            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, 'trajectory_loss': trajectory_loss_total}
 

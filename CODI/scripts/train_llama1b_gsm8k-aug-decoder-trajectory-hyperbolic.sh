@@ -1,3 +1,7 @@
+#!/bin/bash
+# LLaMA 1B Training with Decoder + Hyperbolic Trajectory Consistency
+# Warning: Hyperbolic space is experimental and may have numerical stability issues
+
 SAVE_DIR=/data/user/yhao481/proj/baseline-simcon/CODI/outputs
 
 mkdir -p "${SAVE_DIR}"
@@ -5,8 +9,8 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 python train.py \
 	--output_dir "${SAVE_DIR}" \
-	--expt_name gsm8k_llama1b_latent_baseline-decoder-debug \
-	--logging_dir "${SAVE_DIR}/decoder-logs" \
+	--expt_name gsm8k_llama1b_latent_decoder-trajectory-hyperbolic \
+	--logging_dir "${SAVE_DIR}/hyperbolic-logs" \
 	--logging_steps 10 \
 	--model_name_or_path /data/user/yhao481/LLM-Research/Llama-3.2-1B-Instruct \
 	--data_name icot \
@@ -15,10 +19,10 @@ python train.py \
 	--per_device_train_batch_size 32 \
 	--gradient_accumulation_steps 4 \
 	--bf16 \
-	--dataloader_num_workers 4 \
+	--dataloader_num_workers 16 \
 	--dataloader_pin_memory True \
 	--dataloader_persistent_workers True \
-	--dataloader_prefetch_factor 2 \
+	--dataloader_prefetch_factor 4 \
 	--num_train_epochs 10 \
 	--learning_rate 8e-4 \
 	--max_grad_norm 2.0 \
@@ -48,4 +52,8 @@ python train.py \
 	--print_ref_model_stats False \
 	--max_token_num 200 \
 	--use_decoder True \
-	--ddp_find_unused_parameters False
+	--use_trajectory_consistency True \
+	--trajectory_space_type hyperbolic \
+	--trajectory_radius_threshold 1.5 \
+	--trajectory_loss_factor 0.08 \
+	--trajectory_curvature -1.0

@@ -9,6 +9,7 @@ from typing import Dict, Optional, Sequence
 import torch
 import json
 import transformers
+from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.data import Dataset
 from transformers import Trainer
 from safetensors.torch import load_file
@@ -55,6 +56,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 class CustomTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.profiler = None
+        self.profile_steps = 4  # Profile for 10 steps
+        self.profiling_started = False
+    
     def compute_loss(self, model, inputs, num_items_in_batch):
         # Extract the global step from the optimizer
         step = self.state.global_step
@@ -71,9 +78,33 @@ class CustomTrainer(Trainer):
         # Add the step information to the inputs dictionary
         inputs["step_ratio"] = step / total_steps
         inputs["step"] = step
-        # Call the model's forward method
+        
+        # # Start profiling after 10 steps for 10 steps
+        # if step == 1 and not self.profiling_started:
+        #     self.profiler = profile(
+        #         activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        #         record_shapes=True,
+        #         profile_memory=True,
+        #         with_stack=True,
+        #         on_trace_ready=self._save_trace
+        #     )
+        #     self.profiler.__enter__()
+        #     self.profiling_started = True
+        #     print(f"\n{'='*80}\nStarting profiling at step {step}\n{'='*80}\n")
+        
+        # # Call the model's forward method with profiling
+        # with record_function("model_forward"):
+        #     outputs = model(**inputs)
+        
         outputs = model(**inputs)
         loss = outputs["loss"]
+        
+        # Stop profiling after profile_steps
+        # if self.profiling_started and step >= 1 + self.profile_steps:
+        #     self.profiler.__exit__(None, None, None)
+        #     self.profiling_started = False
+        #     print(f"\n{'='*80}\nProfiling completed at step {step}\n{'='*80}\n")
+        
         loss_for_log = loss.detach() if isinstance(loss, torch.Tensor) else loss
         if step % self.args.logging_steps == 0:
             logs = {
@@ -81,6 +112,7 @@ class CustomTrainer(Trainer):
                 "ce_loss": _to_scalar(outputs.get("ce_loss")),
                 "distill_loss": _to_scalar(outputs.get("distill_loss")),
                 "ref_ce_loss": _to_scalar(outputs.get("ref_ce_loss")),
+                "trajectory_loss": _to_scalar(outputs.get("trajectory_loss")),
             }
             if not hasattr(self, "is_global_zero") or self.is_global_zero:
                 self.log(logs)
@@ -89,6 +121,46 @@ class CustomTrainer(Trainer):
         #     self.log({"loss": loss.item(), "ce_loss": outputs["ce_loss"], "distill_loss": outputs["distill_loss"], "ref_ce_loss": outputs["ref_ce_loss"],})
 
         return loss
+    
+    def _save_trace(self, prof):
+        """Callback to save profiling results"""
+        output_dir = self.args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Save Chrome trace for visualization
+        trace_path = os.path.join(output_dir, "profiler_trace.json")
+        prof.export_chrome_trace(trace_path)
+        print(f"Profiler trace saved to: {trace_path}")
+        print("You can view it at chrome://tracing in Chrome browser\n")
+        
+        # Print summary table
+        print("\n" + "="*100)
+        print("PROFILER SUMMARY - Top operations by CUDA time")
+        print("="*100)
+        print(prof.key_averages().table(
+            sort_by="cuda_time_total",
+            row_limit=20
+        ))
+        
+        # Save summary to file
+        summary_path = os.path.join(output_dir, "profiler_summary.txt")
+        with open(summary_path, "w") as f:
+            f.write("="*100 + "\n")
+            f.write("PROFILER SUMMARY - Top operations by CUDA time\n")
+            f.write("="*100 + "\n")
+            f.write(prof.key_averages().table(
+                sort_by="cuda_time_total",
+                row_limit=50
+            ))
+            f.write("\n\n" + "="*100 + "\n")
+            f.write("PROFILER SUMMARY - Top operations by CPU time\n")
+            f.write("="*100 + "\n")
+            f.write(prof.key_averages().table(
+                sort_by="cpu_time_total",
+                row_limit=50
+            ))
+        print(f"Profiler summary saved to: {summary_path}")
+        print("="*100 + "\n")
 
     def log(self, logs, start_time=None):
         if self.state.global_step is not None:
@@ -267,7 +339,14 @@ def train():
 
             token_nums = []
             # import pdb; pdb.set_trace()
-            # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')            
+            # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')         
+            cached_data = torch.load('/hpc2hdd/home/yhao481/jhupload/SIM-CoT/CODI/cache/dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
+            self.data_dict = cached_data["data_dict"]
+            self.keys = cached_data["keys"]
+            logging.info(
+                f"✓ Cache loaded! {len(self)} samples across "
+            )
+            return    
             for num_iter, example in tqdm(enumerate(raw_data)):
                 if 'cot' not in example: 
                     example['cot'] = example['steps']

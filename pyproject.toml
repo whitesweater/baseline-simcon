@@ -1,0 +1,60 @@
+[project]
+name = "baseline"
+version = "0.1.0"
+description = "SIM-CoT baseline implementation"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    # 核心依赖 - 版本降级以兼容 CODI/Coconut
+    "torch>=2.0.0,<3.0.0",  # 支持 2.5.1+ 和 2.9.0+
+    "transformers>=4.40.0,<5.0.0",  # 兼容 4.46.2+
+    "accelerate>=1.0.0,<2.0.0",  # 兼容 1.7.0+
+    "peft>=0.10.0,<1.0.0",  # 兼容 0.15.2 - 0.17.1
+    "datasets>=3.0.0,<5.0.0",  # 兼容 3.1.0 - 4.3.0
+    
+    # NumPy - 重要：降级以解决兼容性
+    "numpy>=1.24.0,<2.0.0",  # CODI 使用 2.2.6，但 1.24.4 更稳定
+    
+    # 数据处理
+    "pandas>=2.0.0",
+    "pyarrow>=20.0.0",
+    "tqdm>=4.67.0",
+    
+    # HuggingFace 生态
+    "huggingface-hub>=0.20.0",
+    "tokenizers>=0.15.0",
+    "safetensors>=0.4.0",
+    
+    # 训练监控
+    "tensorboard>=2.14.0",
+    "wandb>=0.15.0",
+    
+    # 工具库
+    "pyyaml>=6.0",
+    "protobuf>=3.20.0,<5.0.0",  # 避免版本冲突
+    "psutil>=5.9.0",
+    "regex>=2024.0.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+# 开发依赖
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+# ModelScope 支持（可选）
+modelscope = [
+    "modelscope>=1.10.0",
+]
+
+# PyPI 镜像源配置（与 SIM-CoT 保持一致）
+[[tool.uv.index]]
+url = "https://mirrors.cloud.tencent.com/pypi/simple/"
+
+[[tool.uv.index]]
+url = "http://harbor.internal.com:8081/repository/pypi-hkust/simple/"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"

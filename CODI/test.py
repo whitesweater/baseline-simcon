@@ -168,9 +168,11 @@ def evaluation(model_args, data_args, training_args):
         dataset = load_dataset("zen-E/CommonsenseQA-GPT4omini")
         test_set = dataset['validation']
     elif "gsm8k" == data_args.data_name:
-        # dataset = load_dataset("gsm8k", "main")
-        # test_set = dataset['test']
-        test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_test_clean.json')
+        #  hf_id = "zen-E/GSM8k-Aug-NL" if "full" in name else "/data/yhao/sim-con/datasets--zen-E--GSM8k-Aug"
+        # test_set = load_dataset("/data/yhao/sim-con/datasets--zen-E--GSM8k-Aug")['test']
+        # hf_id = "zen-E/GSM8k-Aug-NL" if "full" in name else "zen-E/GSM8k-Aug"
+        test_set = load_dataset("zen-E/GSM8k-Aug")["test"]
+        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_test_clean.json')
         # import pdb; pdb.set_trace()
         # print()
     else:
@@ -318,7 +320,7 @@ def evaluation(model_args, data_args, training_args):
             pred_tokens = [[] for _ in range(batch_size)]
             for i in range(gen_kwargs["max_new_tokens"]):
                 seq_len += 1
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 out = model.codi(
                         inputs_embeds=output,
                         output_hidden_states=False,
