@@ -47,4 +47,5 @@ python train.py \
 	--distill_loss_factor 20 \
 	--print_ref_model_stats False \
 	--max_token_num 200 \
-	--use_decoder True
+	--use_decoder True \
+	--ddp_find_unused_parameters False

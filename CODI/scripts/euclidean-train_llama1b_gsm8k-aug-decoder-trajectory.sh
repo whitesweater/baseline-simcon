@@ -11,7 +11,7 @@ python train.py \
 	--expt_name gsm8k_llama1b_latent_decoder-trajectory-euclidean \
 	--logging_dir "${SAVE_DIR}/euclidean-logs" \
 	--logging_steps 10 \
-	--model_name_or_path /data/user/yhao481/LLM-Research/Llama-3.2-1B-Instruct \
+	--model_name_or_path /data/yhao/sim-con/modelscope/LLM-Research/Llama-3.2-1B-Instruct \
 	--data_name icot \
 	--seed 11 \
 	--model_max_length 512 \
