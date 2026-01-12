@@ -182,6 +182,91 @@ class TrajectoryConsistencyCenter:
         violation = torch.clamp(dist - radius_threshold, min=0.0)
         return violation.mean()
 
+    # ---------- Statistics helpers ----------
+    def center_and_dist(self, X):
+        """
+        Compute Fréchet center and distances for Euclidean/Hyperbolic space.
+        Supports X with shape:
+          - [K,D]: single sample with K tokens
+          - [B,K,D]: batched samples
+
+        Returns:
+          - center: [D] for [K,D], or [B,D] for [B,K,D]
+          - dist:   [K] for [K,D], or [B,K] for [B,K,D]
+        """
+        if X.dim() == 2:  # [K,D]
+            if self.space_type == "euclidean":
+                center = X.mean(dim=0)  # [D]
+                dist = torch.linalg.norm(X - center, dim=-1)  # [K]
+                return center, dist
+            else:
+                center = self.frechet_mean(X)  # [D]
+                dist = self.hyperbolic_distance(X, center)  # [K]
+                return center, dist
+
+        elif X.dim() == 3:  # [B,K,D]
+            B, K, D = X.shape
+            if self.space_type == "euclidean":
+                center = X.mean(dim=1)  # [B,D]
+                dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
+                return center, dist
+            else:
+                centers = []
+                dists = []
+                for b in range(B):
+                    c_b = self.frechet_mean(X[b])  # [D]
+                    centers.append(c_b)
+                    d_b = self.hyperbolic_distance(X[b], c_b)  # [K]
+                    dists.append(d_b)
+                center = torch.stack(centers)  # [B,D]
+                dist = torch.stack(dists)      # [B,K]
+                return center, dist
+        else:
+            raise ValueError(f"Unexpected tensor dimension for center_and_dist: {X.dim()}")
+
+    # ---------- Statistics helpers ----------
+    def center_and_dist(self, X):
+        """
+        Compute Fréchet center and distances for Euclidean/Hyperbolic space.
+        Supports X with shape:
+          - [K,D]: single sample with K tokens
+          - [B,K,D]: batched samples
+
+        Returns:
+          - center: [D] for [K,D], or [B,D] for [B,K,D]
+          - dist:   [K] for [K,D], or [B,K] for [B,K,D]
+        """
+        if X.dim() == 2:  # [K,D]
+            if self.space_type == "euclidean":
+                center = X.mean(dim=0)  # [D]
+                dist = torch.linalg.norm(X - center, dim=-1)  # [K]
+                return center, dist
+            else:
+                center = self.frechet_mean(X)  # [D]
+                dist = self.hyperbolic_distance(X, center)  # [K]
+                return center, dist
+
+        elif X.dim() == 3:  # [B,K,D]
+            B, K, D = X.shape
+            if self.space_type == "euclidean":
+                center = X.mean(dim=1)  # [B,D]
+                dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
+                return center, dist
+            else:
+                centers = []
+                dists = []
+                for b in range(B):
+                    c_b = self.frechet_mean(X[b])  # [D]
+                    centers.append(c_b)
+                    d_b = self.hyperbolic_distance(X[b], c_b)  # [K]
+                    dists.append(d_b)
+                center = torch.stack(centers)  # [B,D]
+                dist = torch.stack(dists)      # [B,K]
+                return center, dist
+        else:
+            raise ValueError(f"Unexpected tensor dimension for center_and_dist: {X.dim()}")
+
+
 
 class TrajectoryConsistencyLoss(nn.Module):
     """
@@ -218,3 +303,45 @@ class TrajectoryConsistencyLoss(nn.Module):
             )
 
         raise ValueError(f"Unexpected tensor dimension: {latent_embeddings.dim()}")
+
+    def compute_stats(self, latent_embeddings: torch.Tensor):
+        """
+        Compute radius statistics without affecting training loss.
+
+        latent_embeddings:
+          - [B,D]: treat as K=B tokens (single sequence)
+          - [T,B,D]: trajectory across T steps for each of B samples
+          - [B,K,D]: already batched steps
+
+        Returns dict with:
+          - center: [B,D] or [D]
+          - dist: [B,K] or [K]
+          - radius_max, radius_mean, violation_rate, radius_threshold
+        """
+        # Normalize to [B,K,D]
+        if latent_embeddings.dim() == 2:
+            X_batched = latent_embeddings.unsqueeze(0)  # [1,K,D]
+        elif latent_embeddings.dim() == 3:
+            # Assume [T,B,D] -> transpose to [B,T,D]
+            T, B, D = latent_embeddings.shape
+            # Heuristic: if first dim equals steps, transpose
+            X_batched = latent_embeddings.transpose(0, 1)  # [B,T,D]
+        else:
+            raise ValueError(f"Unexpected tensor dimension for stats: {latent_embeddings.dim()}")
+
+        # Compute center and distances
+        center, dist = self.core.center_and_dist(X_batched)
+
+        # Scalar statistics across batch and steps
+        radius_max = dist.max()
+        radius_mean = dist.mean()
+        violation_rate = (dist > self.radius_threshold).float().mean()
+
+        return {
+            "center": center,
+            "dist": dist,
+            "radius_max": radius_max,
+            "radius_mean": radius_mean,
+            "violation_rate": violation_rate,
+            "radius_threshold": torch.tensor(self.radius_threshold, device=radius_mean.device),
+        }
