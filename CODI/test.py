@@ -338,6 +338,7 @@ def evaluation(model_args, data_args, training_args):
                         "batch": int(step),
                         "radius_max": float(stats['radius_max'].item()),
                         "radius_mean": float(stats['radius_mean'].item()),
+                        "violation_count": int(stats['violation_count'].item()),
                         "violation_rate": float(stats['violation_rate'].item()),
                         "radius_threshold": float(stats['radius_threshold'].item()),
                         "num_latent_steps": len(latent_embeddings_for_consistency),
