@@ -215,3 +215,4 @@ CODI/result/**
 # Local environment config (each machine has its own)
 CODI/config.env
 config.env
+CODI/results/**
