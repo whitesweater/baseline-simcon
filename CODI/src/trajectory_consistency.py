@@ -54,7 +54,7 @@ class EuclideanGeometry:
         return center, dist
 
 
-class PoincareBallGeometry:
+class HyperbolicGeometry:
     """
     Poincaré ball model for hyperbolic geometry.
     
@@ -217,7 +217,7 @@ class TrajectoryConsistencyCore:
         if space_type == "euclidean":
             self.geo = EuclideanGeometry(self.cfg)
         else:
-            self.geo = PoincareBallGeometry(self.cfg)
+            self.geo = HyperbolicGeometry(self.cfg)
     
     def center_and_dist(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
