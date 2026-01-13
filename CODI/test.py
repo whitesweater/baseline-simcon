@@ -39,6 +39,7 @@ from src.model import (
     TrainingArguments,
 )
 from src.trajectory_consistency import TrajectoryConsistencyLoss
+from src.trajectory_consistency import TrajectoryConsistencyLoss
 
 do_print = True
 
@@ -141,6 +142,8 @@ def evaluation(model_args, data_args, training_args):
     device = "cuda"
     model = model.to('cuda')
     model.to(torch.bfloat16)
+    # prepare radius log path
+    radius_log_path = os.path.join("/hpc2hdd/home/yhao481/jhupload/baseline/CODI/result", f"radius_{data_args.data_name}.jsonl") 
     # prepare radius log path
     radius_log_path = os.path.join("/data/yhao/baseline/CODI/results", f"radius_{data_args.data_name}.jsonl") 
     # import pdb; pdb.set_trace()
@@ -275,6 +278,8 @@ def evaluation(model_args, data_args, training_args):
             latent_embd = outputs.hidden_states[-1][:, -1, :].unsqueeze(1)
             # Collect latent embeddings across iterations for radius stats
             latent_embeddings_for_consistency = []
+            # Collect latent embeddings across iterations for radius stats
+            latent_embeddings_for_consistency = []
 
             if training_args.use_prj:
                 latent_embd = model.prj(latent_embd)
@@ -288,6 +293,8 @@ def evaluation(model_args, data_args, training_args):
                 if training_args.use_prj:
                     soft_embeds = model.prj(soft_embeds)
                 latent_embd = latent_embd + model_args.soft_weight * soft_embeds
+            # Append first latent after projection/soft-weight
+            latent_embeddings_for_consistency.append(latent_embd.squeeze(1))  # [B,D]
             # Append first latent after projection/soft-weight
             latent_embeddings_for_consistency.append(latent_embd.squeeze(1))  # [B,D]
             
@@ -312,6 +319,39 @@ def evaluation(model_args, data_args, training_args):
                         soft_embeds = model.prj(soft_embeds)
 
                     latent_embd = latent_embd + model_args.soft_weight * soft_embeds
+                # Append subsequent latents
+                latent_embeddings_for_consistency.append(latent_embd.squeeze(1))
+
+            # Compute and print radius stats for this batch
+            try:
+                tc = TrajectoryConsistencyLoss(
+                    space_type=training_args.trajectory_space_type,
+                    radius_threshold=training_args.trajectory_radius_threshold,
+                    curvature=training_args.trajectory_curvature,
+                )
+                latents_TBD = torch.stack(latent_embeddings_for_consistency, dim=0)  # [T,B,D]
+                stats = tc.compute_stats(latents_TBD)
+                if do_print:
+                    print(
+                        f"[Radius] batch={step} max={stats['radius_max'].item():.4f} "
+                        f"mean={stats['radius_mean'].item():.4f} "
+                        f"viol_rate={stats['violation_rate'].item():.4f} "
+                        f"thr={stats['radius_threshold'].item()}"
+                    )
+                # write to file
+                if radius_log_path:
+                    os.makedirs(os.path.dirname(radius_log_path), exist_ok=True)
+                    save_jsonl_line(radius_log_path, {
+                        "batch": int(step),
+                        "radius_max": float(stats['radius_max'].item()),
+                        "radius_mean": float(stats['radius_mean'].item()),
+                        "violation_rate": float(stats['violation_rate'].item()),
+                        "radius_threshold": float(stats['radius_threshold'].item()),
+                        "num_latent_steps": len(latent_embeddings_for_consistency),
+                        "batch_size": int(batch_size),
+                    })
+            except Exception as e:
+                print(f"[Radius] 统计失败: {e}")
                 # Append subsequent latents
                 latent_embeddings_for_consistency.append(latent_embd.squeeze(1))
 
@@ -429,6 +469,7 @@ def evaluation(model_args, data_args, training_args):
                     print("")
                 ans_pred_list.append(extract_answer_number(decoded_pred))
     write_json({"ans": ans_pred_list}, f"/data/yhao/baseline/CODI/results/{data_args.data_name}.json")
+    write_json({"ans": ans_pred_list}, f"/hpc2hdd/home/yhao481/jhupload/baseline/CODI/result/{data_args.data_name}.json")
     accuracy = compute_accuracy(answer, ans_pred_list)
 
     print(f"adapter: {model_args.adapter_name_or_path} | GSM8K test accuracy: {100*accuracy:.2f}% | ")
@@ -436,6 +477,7 @@ def evaluation(model_args, data_args, training_args):
     # import pdb; pdb.set_trace()
     if model_args.save_ablation:
         save_jsonl_line(f"/data/yhao/baseline/CODI/results/{data_args.data_name}.jsonl", {'model_name': '-'.join(model_args.ckpt_dir.split('/')[5:]), 'data_name': data_args.data_name, 'soft_weight': model_args.soft_weight, 'acc.': accuracy})
+        save_jsonl_line(f"/hpc2hdd/home/yhao481/jhupload/baseline/CODI/result/{data_args.data_name}.jsonl", {'model_name': '-'.join(model_args.ckpt_dir.split('/')[5:]), 'data_name': data_args.data_name, 'soft_weight': model_args.soft_weight, 'acc.': accuracy})
     return 100*accuracy
 
 def extract_answer_number(sentence: str) -> float:
