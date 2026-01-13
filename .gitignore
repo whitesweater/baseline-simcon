@@ -216,3 +216,4 @@ CODI/result/**
 CODI/config.env
 config.env
 CODI/results/**
+CODI/cache/**

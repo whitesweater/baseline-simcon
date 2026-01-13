@@ -340,7 +340,9 @@ def train():
             token_nums = []
             # import pdb; pdb.set_trace()
             # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')         
-            cached_data = torch.load('/data/yhao/sim-con/CODI/cache/dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
+            cache_dir = os.environ.get('CODI_CACHE_DIR', os.path.join(os.path.dirname(__file__), 'cache'))
+            cache_path = os.path.join(cache_dir, 'dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
+            cached_data = torch.load(cache_path)
             self.data_dict = cached_data["data_dict"]
             self.keys = cached_data["keys"]
             logging.info(
@@ -477,7 +479,8 @@ def train():
         """Make dataset and collator for supervised fine-tuning."""
         logging.warning("Downloading Data")
         if "icot" in data_args.data_name:
-            dataset = load_dataset("/data/yhao/sim-con/datasets--zen-E--GSM8k-Aug")["train"]
+            # gsm8k_aug_path = os.environ.get('CODI_GSM8K_AUG_PATH', 'zen-E/GSM8k-Aug')
+            dataset = load_dataset("zen-E/GSM8k-Aug")["train"]
             # dataset = None
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
             data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
@@ -493,7 +496,8 @@ def train():
             data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
             return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
         elif "prontoqa" in data_args.data_name:
-            with open("/home/ubuntu/coconut/data/prontoqa_train.json") as f:
+            prontoqa_path = os.environ.get('CODI_PRONTOQA_PATH', '/home/ubuntu/coconut/data/prontoqa_train.json')
+            with open(prontoqa_path) as f:
                 dataset = json.load(f)
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
             data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
