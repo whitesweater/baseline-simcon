@@ -1,347 +1,344 @@
+"""
+Trajectory Consistency Loss for Latent Token Regularization.
+
+Constrains latent tokens to stay within a radius around their geometric center (Fréchet mean).
+Supports both Euclidean and Hyperbolic (Poincaré ball) spaces.
+"""
+
 import math
-import math
+from dataclasses import dataclass
+from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
 
 
-class TrajectoryConsistencyCenter:
-    """
-    Compute trajectory consistency loss by constraining latent tokens
-    to stay within a radius around their Fréchet mean (geometric center).
-    
-    Supports both Euclidean and Hyperbolic spaces.
-    """
-    
-    def __init__(self, space_type="euclidean", curvature=-1.0, eps=1e-8):
-        assert space_type in ["euclidean", "hyperbolic"]
-        if space_type == "hyperbolic":
-            assert curvature < 0, "For hyperbolic space, curvature should be negative (e.g. -1.0)."
-        self.space_type = space_type
-        self.curvature = curvature
-        self.eps = eps
+# =========================
+# Configuration
+# =========================
 
-    # ---------- Hyperbolic core ops (minimal set) ----------
-    def project_to_ball(self, x):
-        """
-        Project x into the open Poincaré ball of radius 1/sqrt(c).
-        Supports shape [..., D]
-        """
-        c = -self.curvature  # > 0
-        sqrt_c = math.sqrt(c)
-        max_norm = (1.0 / sqrt_c) - self.eps  # python float
+@dataclass
+class GeometryConfig:
+    """Configuration for geometry backends."""
+    curvature: float = -1.0   # negative for hyperbolic
+    eps: float = 1e-8
+    max_iter: int = 50        # for Fréchet mean iteration
+    step_size: float = 0.1    # gradient descent step
 
-        norm = torch.linalg.norm(x, dim=-1, keepdim=True)  # [...,1]
-        scale = torch.clamp(max_norm / (norm + self.eps), max=1.0)
+
+# =========================
+# Geometry Backends (Strategy Pattern)
+# =========================
+
+class EuclideanGeometry:
+    """Euclidean geometry: arithmetic mean + L2 distance."""
+    
+    def __init__(self, cfg: GeometryConfig):
+        self.cfg = cfg
+    
+    def frechet_mean(self, X: torch.Tensor) -> torch.Tensor:
+        """X: [K,D] -> [D]"""
+        return X.mean(dim=0)
+    
+    def distance(self, X: torch.Tensor, center: torch.Tensor) -> torch.Tensor:
+        """X: [K,D], center: [D] -> [K]"""
+        return torch.linalg.norm(X - center, dim=-1)
+    
+    def center_and_dist_batch(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Vectorized computation for batch.
+        X: [B,K,D] -> center: [B,D], dist: [B,K]
+        """
+        center = X.mean(dim=1)  # [B,D]
+        dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
+        return center, dist
+
+
+class PoincareBallGeometry:
+    """
+    Poincaré ball model for hyperbolic geometry.
+    
+    Key operations:
+      - project: ensure points stay in the ball
+      - mobius_add: addition in hyperbolic space
+      - log0/exp0: log/exp maps at origin
+      - frechet_mean: iterative Karcher mean
+      
+    All operations support batch dimensions for efficiency.
+    """
+    
+    def __init__(self, cfg: GeometryConfig):
+        if cfg.curvature >= 0:
+            raise ValueError("Hyperbolic space requires negative curvature (e.g., -1.0)")
+        self.cfg = cfg
+    
+    @property
+    def c(self) -> float:
+        """Positive curvature constant (c = -curvature)."""
+        return -self.cfg.curvature
+    
+    def project(self, x: torch.Tensor) -> torch.Tensor:
+        """Project x into the open ball of radius 1/sqrt(c). x: [..., D]"""
+        sqrt_c = math.sqrt(self.c)
+        max_norm = (1.0 / sqrt_c) - self.cfg.eps
+        
+        norm = torch.linalg.norm(x, dim=-1, keepdim=True)
+        scale = torch.clamp(max_norm / (norm + self.cfg.eps), max=1.0)
         return x * scale
-
-    def project_to_hyperbolic(self, x):
-        """Alias for compatibility with existing callers."""
-        return self.project_to_ball(x)
-
-    def mobius_add(self, x, y):
-        """
-        Möbius addition in Poincaré ball. Shapes [...,D] broadcastable.
-        """
-        c = -self.curvature
-        x = self.project_to_ball(x)
-        y = self.project_to_ball(y)
-
-        x2 = torch.sum(x * x, dim=-1, keepdim=True)  # [...,1]
+    
+    def mobius_add(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Möbius addition: x ⊕ y in Poincaré ball. x,y: [...,D] (broadcastable)"""
+        c = self.c
+        x, y = self.project(x), self.project(y)
+        
+        x2 = torch.sum(x * x, dim=-1, keepdim=True)
         y2 = torch.sum(y * y, dim=-1, keepdim=True)
         xy = torch.sum(x * y, dim=-1, keepdim=True)
-
+        
         num = (1 + 2 * c * xy + c * y2) * x + (1 - c * x2) * y
-        den = 1 + 2 * c * xy + (c ** 2) * x2 * y2
-        den = torch.clamp(den, min=self.eps)
-
-        return self.project_to_ball(num / den)
-
-    def log0(self, x):
-        """
-        Log map at origin for Poincaré ball.
-        x: [...,D]
-        """
-        x = self.project_to_ball(x)
-        c = -self.curvature
-        sqrt_c = math.sqrt(c)
-
-        x_norm = torch.linalg.norm(x, dim=-1, keepdim=True)  # [...,1]
-        small = x_norm < self.eps
-
+        den = torch.clamp(1 + 2 * c * xy + (c ** 2) * x2 * y2, min=self.cfg.eps)
+        
+        return self.project(num / den)
+    
+    def log0(self, x: torch.Tensor) -> torch.Tensor:
+        """Log map at origin: log_0(x). x: [..., D]"""
+        x = self.project(x)
+        sqrt_c = math.sqrt(self.c)
+        
+        x_norm = torch.linalg.norm(x, dim=-1, keepdim=True)
+        small = x_norm < self.cfg.eps
+        
         z = torch.clamp(sqrt_c * x_norm, max=1.0 - 1e-4)
-        coef = torch.arctanh(z) / (sqrt_c * x_norm + self.eps)
+        coef = torch.arctanh(z) / (sqrt_c * x_norm + self.cfg.eps)
         out = coef * x
         return torch.where(small, torch.zeros_like(out), out)
-
-    def exp0(self, v):
-        """
-        Exp map at origin for Poincaré ball.
-        v: [...,D]
-        """
-        c = -self.curvature
-        sqrt_c = math.sqrt(c)
-
-        v_norm = torch.linalg.norm(v, dim=-1, keepdim=True)
-        small = v_norm < self.eps
-
-        coef = torch.tanh(sqrt_c * v_norm) / (sqrt_c * v_norm + self.eps)
-        out = self.project_to_ball(coef * v)
-        return torch.where(small, torch.zeros_like(out), out)
-
-    def hyperbolic_distance(self, x, y):
-        """
-        Standard Poincaré distance (arcosh form), stable.
-        x: [...,D], y: [D] or [...,D]
-        return: [...]
-        """
-        c = -self.curvature
-        sqrt_c = math.sqrt(c)
-
-        x = self.project_to_ball(x)
-        y = self.project_to_ball(y)
-
-        diff2 = torch.sum((x - y) ** 2, dim=-1)  # [...]
-        x2 = torch.sum(x * x, dim=-1)            # [...]
-        y2 = torch.sum(y * y, dim=-1)            # [...]
-
-        denom = (1 - c * x2) * (1 - c * y2)
-        denom = torch.clamp(denom, min=self.eps)
-
-        z = 1 + 2 * c * diff2 / denom
-        z = torch.clamp(z, min=1.0 + 1e-6)  # arcosh domain
-        return (1.0 / sqrt_c) * torch.arccosh(z)
-
-    # ---------- Fréchet mean ----------
-    def frechet_mean(self, X, max_iter=50, step_base=0.1):
-        """
-        X: [K,D]
-        """
-        if self.space_type == "euclidean":
-            return X.mean(dim=0)
-
-        # hyperbolic
-        X = self.project_to_ball(X)
-        center = self.exp0(self.log0(X).mean(dim=0))  # [D]
-        center = self.project_to_ball(center)
-
-        for _ in range(max_iter):
-            v = self.log0(self.mobius_add(-center, X))  # [K,D]
-            grad = v.mean(dim=0)                        # [D]
-
-            if torch.linalg.norm(grad) < 1e-6:
-                break
-
-            center = self.mobius_add(center, self.exp0(-step_base * grad))
-            center = self.project_to_ball(center)
-
-        return center
-
-    # ---------- Loss ----------
-    def center_based_consistency_loss(self, X, radius_threshold=2.0):
-        """
-        X: [K,D] or [B,K,D] for batched computation
-        """
-        if X.numel() == 0:
-            return X.new_zeros(())
-
-        # Handle batched input [B,K,D]
-        if X.dim() == 3:
-            B, K, D = X.shape
-            # Compute center for each batch: [B,D]
-            if self.space_type == "euclidean":
-                center = X.mean(dim=1)  # [B,D]
-            else:
-                # Fallback to loop for hyperbolic (rare case)
-                centers = []
-                for b in range(B):
-                    centers.append(self.frechet_mean(X[b]))  # [D]
-                center = torch.stack(centers)  # [B,D]
-            
-            # Compute distances: [B,K]
-            if self.space_type == "euclidean":
-                dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
-            else:
-                # Vectorized hyperbolic distance
-                dist = torch.stack([
-                    self.hyperbolic_distance(X[b], center[b])
-                    for b in range(B)
-                ])  # [B,K]
-            
-            violation = torch.clamp(dist - radius_threshold, min=0.0)  # [B,K]
-            return violation.mean()
+    
+    def exp0(self, v: torch.Tensor) -> torch.Tensor:
+        """Exp map at origin: exp_0(v). v: [..., D]"""
+        sqrt_c = math.sqrt(self.c)
         
-        # Original single-sample case [K,D]
-        center = self.frechet_mean(X)
+        v_norm = torch.linalg.norm(v, dim=-1, keepdim=True)
+        small = v_norm < self.cfg.eps
+        
+        coef = torch.tanh(sqrt_c * v_norm) / (sqrt_c * v_norm + self.cfg.eps)
+        out = self.project(coef * v)
+        return torch.where(small, torch.zeros_like(out), out)
+    
+    def distance(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """
+        Poincaré distance (arcosh form, numerically stable).
+        x: [...,D], y: [...,D] (broadcastable) -> [...]
+        """
+        c = self.c
+        sqrt_c = math.sqrt(c)
+        
+        x, y = self.project(x), self.project(y)
+        
+        diff2 = torch.sum((x - y) ** 2, dim=-1)
+        x2 = torch.sum(x * x, dim=-1)
+        y2 = torch.sum(y * y, dim=-1)
+        
+        denom = torch.clamp((1 - c * x2) * (1 - c * y2), min=self.cfg.eps)
+        z = torch.clamp(1 + 2 * c * diff2 / denom, min=1.0 + 1e-6)
+        
+        return (1.0 / sqrt_c) * torch.arccosh(z)
+    
+    def frechet_mean_batch(self, X: torch.Tensor) -> torch.Tensor:
+        """
+        Batched Fréchet mean (Karcher mean) via Riemannian gradient descent.
+        X: [B, K, D] -> [B, D]
+        
+        All operations are vectorized over the batch dimension.
+        """
+        X = self.project(X)  # [B,K,D]
+        
+        # Initialize: exp0(mean(log0(X))) for each batch
+        log_X = self.log0(X)                      # [B,K,D]
+        center = self.exp0(log_X.mean(dim=1))     # [B,D]
+        center = self.project(center)
+        
+        for _ in range(self.cfg.max_iter):
+            # Compute tangent vectors from center to each point
+            # center: [B,D] -> [B,1,D] for broadcasting with X: [B,K,D]
+            neg_center = -center.unsqueeze(1)                    # [B,1,D]
+            transported = self.mobius_add(neg_center, X)         # [B,K,D]
+            v = self.log0(transported)                           # [B,K,D]
+            
+            # Gradient: mean over K dimension
+            grad = v.mean(dim=1)  # [B,D]
+            
+            # Check convergence (batch-wise)
+            grad_norm = torch.linalg.norm(grad, dim=-1)  # [B]
+            if grad_norm.max() < 1e-6:
+                break
+            
+            # Update centers
+            step = self.exp0(-self.cfg.step_size * grad)  # [B,D]
+            center = self.mobius_add(center, step)        # [B,D]
+            center = self.project(center)
+        
+        return center
+    
+    def center_and_dist_batch(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fully vectorized center and distance computation for batch.
+        X: [B,K,D] -> center: [B,D], dist: [B,K]
+        """
+        # Compute centers for all batches at once
+        center = self.frechet_mean_batch(X)  # [B,D]
+        
+        # Compute distances: X[B,K,D] to center[B,1,D]
+        dist = self.distance(X, center.unsqueeze(1))  # [B,K]
+        
+        return center, dist
 
-        if self.space_type == "euclidean":
-            dist = torch.linalg.norm(X - center, dim=-1)   # [K]
+
+# =========================
+# Trajectory Consistency Core
+# =========================
+
+class TrajectoryConsistencyCore:
+    """
+    Core logic for trajectory consistency loss.
+    
+    Constrains all latent tokens to lie within radius_threshold of their geometric center.
+    
+    Loss = mean(max(0, d(z_k, center) - radius_threshold))
+    """
+    
+    def __init__(self, space_type: str = "euclidean", curvature: float = -1.0, eps: float = 1e-8):
+        if space_type not in ("euclidean", "hyperbolic"):
+            raise ValueError("space_type must be 'euclidean' or 'hyperbolic'")
+        
+        self.space_type = space_type
+        self.cfg = GeometryConfig(curvature=curvature, eps=eps)
+        
+        # Select geometry backend
+        if space_type == "euclidean":
+            self.geo = EuclideanGeometry(self.cfg)
         else:
-            dist = self.hyperbolic_distance(X, center)     # [K]
-
+            self.geo = PoincareBallGeometry(self.cfg)
+    
+    def center_and_dist(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute Fréchet center and distances.
+        
+        Args:
+            X: [B,K,D] batch of K tokens with D dimensions
+            
+        Returns:
+            center: [B,D] geometric center per batch
+            dist:   [B,K] distance from each token to its center
+        """
+        if X.dim() != 3:
+            raise ValueError(f"Expected 3D tensor [B,K,D], got {X.dim()}D")
+        
+        if X.numel() == 0:
+            raise ValueError("Empty input tensor")
+        
+        return self.geo.center_and_dist_batch(X)
+    
+    def loss(self, X: torch.Tensor, radius_threshold: float) -> torch.Tensor:
+        """
+        Radius constraint loss.
+        
+        Args:
+            X: [B,K,D] batch tensor
+            radius_threshold: maximum allowed distance from center
+            
+        Returns:
+            scalar loss = mean(ReLU(dist - threshold))
+        """
+        _, dist = self.center_and_dist(X)
         violation = torch.clamp(dist - radius_threshold, min=0.0)
         return violation.mean()
 
-    # ---------- Statistics helpers ----------
-    def center_and_dist(self, X):
-        """
-        Compute Fréchet center and distances for Euclidean/Hyperbolic space.
-        Supports X with shape:
-          - [K,D]: single sample with K tokens
-          - [B,K,D]: batched samples
 
-        Returns:
-          - center: [D] for [K,D], or [B,D] for [B,K,D]
-          - dist:   [K] for [K,D], or [B,K] for [B,K,D]
-        """
-        if X.dim() == 2:  # [K,D]
-            if self.space_type == "euclidean":
-                center = X.mean(dim=0)  # [D]
-                dist = torch.linalg.norm(X - center, dim=-1)  # [K]
-                return center, dist
-            else:
-                center = self.frechet_mean(X)  # [D]
-                dist = self.hyperbolic_distance(X, center)  # [K]
-                return center, dist
-
-        elif X.dim() == 3:  # [B,K,D]
-            B, K, D = X.shape
-            if self.space_type == "euclidean":
-                center = X.mean(dim=1)  # [B,D]
-                dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
-                return center, dist
-            else:
-                centers = []
-                dists = []
-                for b in range(B):
-                    c_b = self.frechet_mean(X[b])  # [D]
-                    centers.append(c_b)
-                    d_b = self.hyperbolic_distance(X[b], c_b)  # [K]
-                    dists.append(d_b)
-                center = torch.stack(centers)  # [B,D]
-                dist = torch.stack(dists)      # [B,K]
-                return center, dist
-        else:
-            raise ValueError(f"Unexpected tensor dimension for center_and_dist: {X.dim()}")
-
-    # ---------- Statistics helpers ----------
-    def center_and_dist(self, X):
-        """
-        Compute Fréchet center and distances for Euclidean/Hyperbolic space.
-        Supports X with shape:
-          - [K,D]: single sample with K tokens
-          - [B,K,D]: batched samples
-
-        Returns:
-          - center: [D] for [K,D], or [B,D] for [B,K,D]
-          - dist:   [K] for [K,D], or [B,K] for [B,K,D]
-        """
-        if X.dim() == 2:  # [K,D]
-            if self.space_type == "euclidean":
-                center = X.mean(dim=0)  # [D]
-                dist = torch.linalg.norm(X - center, dim=-1)  # [K]
-                return center, dist
-            else:
-                center = self.frechet_mean(X)  # [D]
-                dist = self.hyperbolic_distance(X, center)  # [K]
-                return center, dist
-
-        elif X.dim() == 3:  # [B,K,D]
-            B, K, D = X.shape
-            if self.space_type == "euclidean":
-                center = X.mean(dim=1)  # [B,D]
-                dist = torch.linalg.norm(X - center.unsqueeze(1), dim=-1)  # [B,K]
-                return center, dist
-            else:
-                centers = []
-                dists = []
-                for b in range(B):
-                    c_b = self.frechet_mean(X[b])  # [D]
-                    centers.append(c_b)
-                    d_b = self.hyperbolic_distance(X[b], c_b)  # [K]
-                    dists.append(d_b)
-                center = torch.stack(centers)  # [B,D]
-                dist = torch.stack(dists)      # [B,K]
-                return center, dist
-        else:
-            raise ValueError(f"Unexpected tensor dimension for center_and_dist: {X.dim()}")
-
-
+# =========================
+# nn.Module Wrapper
+# =========================
 
 class TrajectoryConsistencyLoss(nn.Module):
     """
-    Wrapper module for trajectory consistency loss
+    Training-time module for trajectory consistency loss.
+    
+    Input shape: [T,B,D] where T=num_latent_tokens, B=batch_size, D=hidden_dim
+    Internally transposed to [B,T,D] for computation.
     """
     
-    def __init__(self, space_type="euclidean", radius_threshold=2.0, curvature=-1.0):
+    def __init__(
+        self, 
+        space_type: str = "euclidean", 
+        radius_threshold: float = 2.0, 
+        curvature: float = -1.0, 
+        eps: float = 1e-8
+    ):
         super().__init__()
-        self.core = TrajectoryConsistencyCenter(
-            space_type=space_type,
-            curvature=curvature
+        self.core = TrajectoryConsistencyCore(
+            space_type=space_type, 
+            curvature=curvature, 
+            eps=eps
         )
-        self.radius_threshold = radius_threshold
+        self.radius_threshold = float(radius_threshold)
     
-    def forward(self, latent_embeddings: torch.Tensor):
+    def forward(self, latent_embeddings: torch.Tensor) -> torch.Tensor:
         """
-        latent_embeddings:
-          - [B,D]      : treat as K=B tokens
-          - [T,B,D]    : per-sample trajectory, batched computation (OPTIMIZED)
+        Compute trajectory consistency loss.
+        
+        Args:
+            latent_embeddings: [T,B,D] tensor (T tokens, B batch, D dim)
+            
+        Returns:
+            scalar loss tensor
         """
-        if latent_embeddings.dim() == 2:
-            return self.core.center_based_consistency_loss(
-                latent_embeddings,
-                self.radius_threshold
+        if latent_embeddings.dim() != 3:
+            raise ValueError(
+                f"Expected 3D tensor [T,B,D], got {latent_embeddings.dim()}D. "
+                f"Shape: {latent_embeddings.shape}"
             )
-
-        if latent_embeddings.dim() == 3:
-            # Transpose to [B,T,D] for batched computation
-            T, B, D = latent_embeddings.shape
-            X_batched = latent_embeddings.transpose(0, 1)  # [B,T,D]
-            return self.core.center_based_consistency_loss(
-                X_batched,
-                self.radius_threshold
+        
+        # [T,B,D] -> [B,T,D]
+        X = latent_embeddings.transpose(0, 1)
+        return self.core.loss(X, self.radius_threshold)
+    
+    @torch.no_grad()
+    def compute_stats(self, latent_embeddings: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Compute radius statistics for logging/analysis.
+        
+        Args:
+            latent_embeddings: [T,B,D] tensor
+            
+        Returns:
+            dict with keys:
+              - center: [B,D] geometric center per batch
+              - dist: [B,T] distances
+              - radius_max: scalar, max distance
+              - radius_mean: scalar, mean distance
+              - radius_std: scalar, std of distances
+              - violation_count: scalar, number of violations
+              - violation_rate: scalar, fraction of violations
+              - radius_threshold: scalar, the threshold used
+        """
+        if latent_embeddings.dim() != 3:
+            raise ValueError(
+                f"Expected 3D tensor [T,B,D], got {latent_embeddings.dim()}D"
             )
-
-        raise ValueError(f"Unexpected tensor dimension: {latent_embeddings.dim()}")
-
-    def compute_stats(self, latent_embeddings: torch.Tensor):
-        """
-        Compute radius statistics without affecting training loss.
-
-        latent_embeddings:
-          - [B,D]: treat as K=B tokens (single sequence)
-          - [T,B,D]: trajectory across T steps for each of B samples
-          - [B,K,D]: already batched steps
-
-        Returns dict with:
-          - center: [B,D] or [D]
-          - dist: [B,K] or [K]
-          - radius_max, radius_mean, violation_rate, radius_threshold
-        """
-        # Normalize to [B,K,D]
-        if latent_embeddings.dim() == 2:
-            X_batched = latent_embeddings.unsqueeze(0)  # [1,K,D]
-        elif latent_embeddings.dim() == 3:
-            # Assume [T,B,D] -> transpose to [B,T,D]
-            T, B, D = latent_embeddings.shape
-            # Heuristic: if first dim equals steps, transpose
-            X_batched = latent_embeddings.transpose(0, 1)  # [B,T,D]
-        else:
-            raise ValueError(f"Unexpected tensor dimension for stats: {latent_embeddings.dim()}")
-
-        # Compute center and distances
-        center, dist = self.core.center_and_dist(X_batched)
-
-        # Scalar statistics across batch and steps
-        radius_max = dist.max()
-        radius_mean = dist.mean()
-        violation_rate = (dist > self.radius_threshold).float().mean()
-
+        
+        # [T,B,D] -> [B,T,D]
+        X = latent_embeddings.transpose(0, 1)
+        center, dist = self.core.center_and_dist(X)
+        
+        # Compute statistics
+        violations = dist > self.radius_threshold
+        
         return {
             "center": center,
             "dist": dist,
-            "radius_max": radius_max,
-            "radius_mean": radius_mean,
-            "violation_rate": violation_rate,
-            "radius_threshold": torch.tensor(self.radius_threshold, device=radius_mean.device),
+            "radius_max": dist.max(),
+            "radius_mean": dist.mean(),
+            "radius_std": dist.std(),
+            "violation_count": violations.sum(),
+            "violation_rate": violations.float().mean(),
+            "radius_threshold": torch.tensor(self.radius_threshold, device=dist.device),
         }

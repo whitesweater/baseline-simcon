@@ -2,17 +2,19 @@
 # LLaMA 1B Training with Decoder + Hyperbolic Trajectory Consistency
 # Warning: Hyperbolic space is experimental and may have numerical stability issues
 
-SAVE_DIR=/data/user/yhao481/proj/baseline-simcon/CODI/outputs
+# Load environment config
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
 
+SAVE_DIR="${CODI_SAVE_DIR}"
 mkdir -p "${SAVE_DIR}"
-export HF_ENDPOINT=https://hf-mirror.com
 
 python train.py \
 	--output_dir "${SAVE_DIR}" \
 	--expt_name gsm8k_llama1b_latent_decoder-trajectory-hyperbolic \
 	--logging_dir "${SAVE_DIR}/hyperbolic-logs" \
 	--logging_steps 10 \
-	--model_name_or_path /data/user/yhao481/LLM-Research/Llama-3.2-1B-Instruct \
+	--model_name_or_path "${CODI_LLAMA1B_PATH}" \
 	--data_name icot \
 	--seed 11 \
 	--model_max_length 512 \
