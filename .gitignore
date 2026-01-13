@@ -209,3 +209,4 @@ CODI/outputs/**
 .vscode/**
 baid/**
 **.err
+CODI/results/**

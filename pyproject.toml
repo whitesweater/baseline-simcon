@@ -45,10 +45,12 @@ modelscope = [
 
 # PyPI 镜像源配置（与 SIM-CoT 保持一致）
 [[tool.uv.index]]
-url = "http://harbor.internal.com:8081/repository/pypi-hkust/simple/"
-
-[[tool.uv.index]]
 url = "https://mirrors.cloud.tencent.com/pypi/simple/"
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple/"
+
+[[tool.uv.index]]
+url = "http://harbor.internal.com:8081/repository/pypi-hkust/simple/"
+
+
