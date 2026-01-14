@@ -21,6 +21,9 @@ import copy
 from torch.amp import autocast
 from typing import List, Sequence, Iterable, Union, Optional
 from src.trajectory_consistency import TrajectoryConsistencyLoss
+from src.trajectory_acceleration import TrajectoryAccelerationLoss
+from src.trajectory_action import TrajectoryActionLoss
+from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
 from torch.profiler import record_function
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -131,6 +134,16 @@ class TrainingArguments(transformers.TrainingArguments):
     trajectory_radius_threshold: float = field(default=2.0, metadata={"help": "Radius threshold for trajectory consistency loss."})
     trajectory_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the trajectory consistency loss."})
     trajectory_curvature: float = field(default=-1.0, metadata={"help": "Curvature constant for hyperbolic space (typically -1.0)."})
+    use_trajectory_acceleration: bool = field(default=False, metadata={"help": "Use second-order smoothness (acceleration) loss."})
+    trajectory_max_acceleration: float = field(default=1.0, metadata={"help": "Max acceleration magnitude for smoothness loss."})
+    trajectory_acceleration_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the acceleration smoothness loss."})
+    use_trajectory_action: bool = field(default=False, metadata={"help": "Use least action (path energy) loss."})
+    trajectory_action_lambda_energy: float = field(default=1.0, metadata={"help": "Weight for kinetic energy term."})
+    trajectory_action_lambda_length: float = field(default=0.1, metadata={"help": "Weight for potential energy term."})
+    trajectory_action_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the least action loss."})
+    use_trajectory_geodesic: bool = field(default=False, metadata={"help": "Use geodesic deviation loss."})
+    trajectory_geodesic_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the geodesic deviation loss."})
+    run_test_on_save: bool = field(default=False, metadata={"help": "Run evaluation on the test set when saving the model checkpoint."})
 
 def print_trainable_parameters(model):
     trainable_parameters = 0
@@ -414,6 +427,31 @@ class CODI(torch.nn.Module):
                 curvature=training_args.trajectory_curvature
             )
 
+        # Trajectory Acceleration Loss (Second-Order Smoothness)
+        self.use_trajectory_acceleration = training_args.use_trajectory_acceleration
+        self.trajectory_acceleration_loss_factor = training_args.trajectory_acceleration_loss_factor
+        if self.use_trajectory_acceleration:
+            self.trajectory_acceleration_loss = TrajectoryAccelerationLoss(
+                max_acceleration=training_args.trajectory_max_acceleration
+            )
+
+        # Trajectory Least Action Loss (Path Energy)
+        self.use_trajectory_action = training_args.use_trajectory_action
+        self.trajectory_action_loss_factor = training_args.trajectory_action_loss_factor
+        if self.use_trajectory_action:
+            self.trajectory_action_loss = TrajectoryActionLoss(
+                lambda_energy=training_args.trajectory_action_lambda_energy,
+                lambda_length=training_args.trajectory_action_lambda_length,
+            )
+
+        # Trajectory Geodesic Deviation Loss
+        self.use_trajectory_geodesic = training_args.use_trajectory_geodesic
+        self.trajectory_geodesic_loss_factor = training_args.trajectory_geodesic_loss_factor
+        if self.use_trajectory_geodesic:
+            self.trajectory_geodesic_loss = TrajectoryGeodesicDeviationLoss(
+                curvature=training_args.trajectory_curvature
+            )
+
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
             self.tokenizer.pad_token_id = self.pad_token_id
@@ -576,6 +614,9 @@ class CODI(torch.nn.Module):
         distill_loss_total = 0
         ce_loss_total = 0
         trajectory_loss_total = 0
+        acceleration_loss_total = 0
+        action_loss_total = 0
+        geodesic_loss_total = 0
         
         # Collect latent embeddings for trajectory consistency
         latent_embeddings_for_consistency = []
@@ -754,23 +795,40 @@ class CODI(torch.nn.Module):
         ref_ce_loss = self.loss_fct(effective_ref_logits, ref_target_ids)
         ref_ce_loss *= self.ref_loss_factor 
 
-        # Calculate trajectory consistency loss
-        if self.use_trajectory_consistency and len(latent_embeddings_for_consistency) > 0:
-            # with record_function("trajectory_consistency_loss"):
-           
-            # Convert list of [B,D] tensors to [T,B,D] tensor
+        # Calculate trajectory losses
+        latent_embeddings_tensor = None
+        if (self.use_trajectory_consistency or self.use_trajectory_acceleration or self.use_trajectory_action or self.use_trajectory_geodesic) and len(latent_embeddings_for_consistency) > 0:
             latent_embeddings_tensor = torch.stack(latent_embeddings_for_consistency, dim=0)
-            
+
+        if self.use_trajectory_consistency and latent_embeddings_tensor is not None:
             # Debug info (only at step 0 and every 100 steps)
             if self.print_loss and (step == 0 or step % 100 == 0):
                 print(f"\n[Trajectory] Device: {latent_embeddings_tensor.device}, "
                         f"Shape: {latent_embeddings_tensor.shape}, "
                         f"Space: {self.training_args.trajectory_space_type}")
-            
+
             trajectory_loss_total = self.trajectory_consistency_loss(latent_embeddings_tensor)
             trajectory_loss_total *= self.trajectory_loss_factor
         else:
             trajectory_loss_total = torch.tensor(0.0, device=ce_loss_total.device if ce_loss_total != 0 else ref_ce_loss.device)
+
+        if self.use_trajectory_acceleration and latent_embeddings_tensor is not None:
+            acceleration_loss_total = self.trajectory_acceleration_loss(latent_embeddings_tensor)
+            acceleration_loss_total *= self.trajectory_acceleration_loss_factor
+        else:
+            acceleration_loss_total = torch.tensor(0.0, device=trajectory_loss_total.device)
+
+        if self.use_trajectory_action and latent_embeddings_tensor is not None:
+            action_loss_total = self.trajectory_action_loss(latent_embeddings_tensor)
+            action_loss_total *= self.trajectory_action_loss_factor
+        else:
+            action_loss_total = torch.tensor(0.0, device=trajectory_loss_total.device)
+
+        if self.use_trajectory_geodesic and latent_embeddings_tensor is not None:
+            geodesic_loss_total = self.trajectory_geodesic_loss(latent_embeddings_tensor)
+            geodesic_loss_total *= self.trajectory_geodesic_loss_factor
+        else:
+            geodesic_loss_total = torch.tensor(0.0, device=trajectory_loss_total.device)
         
         # Weigh the distillation loss
         distill_loss *= self.distill_loss_factor
@@ -781,11 +839,11 @@ class CODI(torch.nn.Module):
 
         if self.print_loss:
             if self.model_args.use_decoder:
-                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, explain_loss={explain_loss_total}, trajectory_loss={trajectory_loss_total}')    
+                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, explain_loss={explain_loss_total}, trajectory_loss={trajectory_loss_total}, acceleration_loss={acceleration_loss_total}, action_loss={action_loss_total}, geodesic_loss={geodesic_loss_total}')    
             else:
-                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, trajectory_loss={trajectory_loss_total}')
+                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, trajectory_loss={trajectory_loss_total}, acceleration_loss={acceleration_loss_total}, action_loss={action_loss_total}, geodesic_loss={geodesic_loss_total}')
 
-        loss = ce_loss_total + distill_loss_total + ref_ce_loss + trajectory_loss_total
+        loss = ce_loss_total + distill_loss_total + ref_ce_loss + trajectory_loss_total + acceleration_loss_total + action_loss_total + geodesic_loss_total
 
         if self.model_args.use_decoder:
             explain_loss_total = torch.as_tensor(explain_loss_total, device=loss.device, dtype=loss.dtype)
@@ -799,13 +857,19 @@ class CODI(torch.nn.Module):
             ref_ce_loss = ref_ce_loss.detach()
         if trajectory_loss_total != 0:
             trajectory_loss_total = trajectory_loss_total.detach()
+        if acceleration_loss_total != 0:
+            acceleration_loss_total = acceleration_loss_total.detach()
+        if action_loss_total != 0:
+            action_loss_total = action_loss_total.detach()
+        if geodesic_loss_total != 0:
+            geodesic_loss_total = geodesic_loss_total.detach()
         if self.model_args.use_decoder:
             if explain_loss_total != 0:
                 explain_loss_total = explain_loss_total.detach()
         # print(f"{ce_loss_total=}, {distill_loss_total=}, {ref_ce_loss=}, {explain_loss_total}")
 
         if self.model_args.use_decoder:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, 'explain_loss': explain_loss_total, 'trajectory_loss': trajectory_loss_total}
+            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "explain_loss": explain_loss_total, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total}
         else:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, 'trajectory_loss': trajectory_loss_total}
+            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total}
 

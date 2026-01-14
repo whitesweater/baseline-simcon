@@ -37,6 +37,9 @@ from src.model import (
     TrainingArguments,
 )
 from src.trajectory_consistency import TrajectoryConsistencyLoss
+from src.trajectory_acceleration import TrajectoryAccelerationLoss
+from src.trajectory_action import TrajectoryActionLoss
+from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
 
 # ============================================================
 # 环境配置：优先从环境变量读取路径
@@ -85,7 +88,130 @@ def write_json(data, file_path):
     except Exception as e:
         print(f"写入JSON文件时出错: {e}")
 
+
+def _stack_latents(latent_embeddings_for_consistency):
+    if not latent_embeddings_for_consistency:
+        return None
+    return torch.stack(latent_embeddings_for_consistency, dim=0)  # [T,B,D]
+
+
+def log_radius_stats(latents_TBD, training_args, step, batch_size, do_print, radius_log_path):
+    try:
+        tc = TrajectoryConsistencyLoss(
+            space_type=training_args.trajectory_space_type,
+            radius_threshold=training_args.trajectory_radius_threshold,
+            curvature=training_args.trajectory_curvature,
+        )
+        stats = tc.compute_stats(latents_TBD)
+        if do_print:
+            print(
+                f"[Radius] batch={step} max={stats['radius_max'].item():.4f} "
+                f"mean={stats['radius_mean'].item():.4f} "
+                f"viol_rate={stats['violation_rate'].item():.4f} "
+                f"thr={stats['radius_threshold'].item()}"
+            )
+        if radius_log_path:
+            os.makedirs(os.path.dirname(radius_log_path), exist_ok=True)
+            save_jsonl_line(radius_log_path, {
+                "batch": int(step),
+                "radius_max": float(stats['radius_max'].item()),
+                "radius_mean": float(stats['radius_mean'].item()),
+                "violation_rate": float(stats['violation_rate'].item()),
+                "radius_threshold": float(stats['radius_threshold'].item()),
+                "num_latent_steps": int(latents_TBD.size(0)),
+                "batch_size": int(batch_size),
+            })
+    except Exception as e:
+        print(f"[Radius] 统计失败: {e}")
+
+
+def log_accel_stats(latents_TBD, training_args, step, batch_size, do_print, accel_log_path):
+    try:
+        ta = TrajectoryAccelerationLoss(
+            max_acceleration=training_args.trajectory_max_acceleration
+        )
+        acc_stats = ta.compute_stats(latents_TBD)
+        if do_print:
+            print(
+                f"[Accel] batch={step} max={acc_stats['accel_max'].item():.4f} "
+                f"mean={acc_stats['accel_mean'].item():.4f} "
+                f"viol_rate={acc_stats['violation_rate'].item():.4f} "
+                f"thr={acc_stats['max_acceleration'].item()}"
+            )
+        if accel_log_path:
+            os.makedirs(os.path.dirname(accel_log_path), exist_ok=True)
+            save_jsonl_line(accel_log_path, {
+                "batch": int(step),
+                "accel_max": float(acc_stats['accel_max'].item()),
+                "accel_mean": float(acc_stats['accel_mean'].item()),
+                "accel_std": float(acc_stats['accel_std'].item()),
+                "violation_rate": float(acc_stats['violation_rate'].item()),
+                "max_acceleration": float(acc_stats['max_acceleration'].item()),
+                "num_latent_steps": int(latents_TBD.size(0)),
+                "batch_size": int(batch_size),
+            })
+    except Exception as e:
+        print(f"[Accel] 统计失败: {e}")
+
+
+def log_action_stats(latents_TBD, training_args, step, batch_size, do_print, action_log_path):
+    try:
+        ta = TrajectoryActionLoss(
+            lambda_energy=training_args.trajectory_action_lambda_energy,
+            lambda_length=training_args.trajectory_action_lambda_length,
+        )
+        action_stats = ta.compute_stats(latents_TBD)
+        if do_print:
+            print(
+                f"[Action] batch={step} total_max={action_stats['total_max'].item():.4f} "
+                f"total_mean={action_stats['total_mean'].item():.4f} "
+                f"kin_mean={action_stats['kinetic_mean'].item():.4f} "
+                f"pot_mean={action_stats['potential_mean'].item():.4f} "
+                f"lambda_e={action_stats['lambda_energy'].item()} "
+                f"lambda_l={action_stats['lambda_length'].item()}"
+            )
+        if action_log_path:
+            os.makedirs(os.path.dirname(action_log_path), exist_ok=True)
+            save_jsonl_line(action_log_path, {
+                "batch": int(step),
+                "total_max": float(action_stats['total_max'].item()),
+                "total_mean": float(action_stats['total_mean'].item()),
+                "kinetic_mean": float(action_stats['kinetic_mean'].item()),
+                "potential_mean": float(action_stats['potential_mean'].item()),
+                "lambda_energy": float(action_stats['lambda_energy'].item()),
+                "lambda_length": float(action_stats['lambda_length'].item()),
+                "num_latent_steps": int(latents_TBD.size(0)),
+                "batch_size": int(batch_size),
+            })
+    except Exception as e:
+        print(f"[Action] 统计失败: {e}")
+
+
+def log_geodesic_stats(latents_TBD, training_args, step, batch_size, do_print, geodesic_log_path):
+    try:
+        tg = TrajectoryGeodesicDeviationLoss(
+            curvature=training_args.trajectory_curvature
+        )
+        geo_stats = tg.compute_stats(latents_TBD)
+        if do_print:
+            print(
+                f"[Geodesic] batch={step} dev_max={geo_stats['deviation_max'].item():.4f} "
+                f"dev_mean={geo_stats['deviation_mean'].item():.4f}"
+            )
+        if geodesic_log_path:
+            os.makedirs(os.path.dirname(geodesic_log_path), exist_ok=True)
+            save_jsonl_line(geodesic_log_path, {
+                "batch": int(step),
+                "deviation_max": float(geo_stats['deviation_max'].item()),
+                "deviation_mean": float(geo_stats['deviation_mean'].item()),
+                "num_latent_steps": int(latents_TBD.size(0)),
+                "batch_size": int(batch_size),
+            })
+    except Exception as e:
+        print(f"[Geodesic] 统计失败: {e}")
+
 def evaluation(model_args, data_args, training_args):
+    print("[Eval] Init model config...")
     if model_args.lora_init:
         task_type = TaskType.CAUSAL_LM
         if any(name in model_args.model_name_or_path.lower() for name in ["llama", "mistral", "falcon", "qwen"]):
@@ -112,6 +238,7 @@ def evaluation(model_args, data_args, training_args):
     #if "llama" in model_args.model_name_or_path:
     #    model.codi.resize_token_embeddings(128261)
     # import pdb; pdb.set_trace()
+    print("[Eval] Loading checkpoint...")
     try:
         state_dict = load_file(os.path.join(model_args.ckpt_dir, "model.safetensors"))
     except Exception:
@@ -124,6 +251,7 @@ def evaluation(model_args, data_args, training_args):
     
     tokenizer_path = model_args.model_name_or_path 
     # tokenizer_path = '/mnt/shared-storage-user/mllm/shared/weixilin/gpt2'
+    print("[Eval] Loading tokenizer...")
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         tokenizer_path,
         token=model_args.token,
@@ -141,13 +269,17 @@ def evaluation(model_args, data_args, training_args):
     device = "cuda"
     model = model.to('cuda')
     model.to(torch.bfloat16)
+    print("[Eval] Model moved to CUDA and set to bfloat16.")
     
     # 从环境变量获取结果输出路径
     radius_log_path = os.path.join(CODI_RESULT_DIR, f"radius_{data_args.data_name}.jsonl")
+    accel_log_path = os.path.join(CODI_RESULT_DIR, f"accel_{data_args.data_name}.jsonl")
+    action_log_path = os.path.join(CODI_RESULT_DIR, f"action_{data_args.data_name}.jsonl")
+    geodesic_log_path = os.path.join(CODI_RESULT_DIR, f"geodesic_{data_args.data_name}.jsonl")
     ######################
     #      dataset       #
     ######################
-    logging.warning("Downloading Data")
+    logging.warning("[Eval] Downloading/Loading Data...")
     question_name = "question"
     answer_name = "answer"
     if "gsm-hard" == data_args.data_name:
@@ -181,7 +313,7 @@ def evaluation(model_args, data_args, training_args):
     else:
         raise NotImplementedError
 
-    logging.warning("Formatting inputs...")
+    logging.warning("[Eval] Formatting inputs...")
     question = [f"{example[question_name].strip().replace('  ', ' ')}" for example in test_set]
     answer = []
 
@@ -212,13 +344,14 @@ def evaluation(model_args, data_args, training_args):
             ans = float("inf")
         answer.append(ans)
 
-    logging.warning("Tokenizing inputs...")
+    logging.warning("[Eval] Tokenizing inputs...")
     eval_step = math.ceil(len(question)/data_args.batch_size)
     logging.warning(f"Total example: {len(question)} | eval batch size: {data_args.batch_size}"
                     f"eval steps: {eval_step}")
     
     question_data = []
     # import pdb; pdb.set_trace()
+    print("[Eval] Building batches...")
     for i in range(eval_step):
         if i < eval_step - 1:
             batch = tokenizer(
@@ -243,6 +376,7 @@ def evaluation(model_args, data_args, training_args):
         question_data.append(batch.to(device))
 
     model.eval()
+    print("[Eval] Starting inference loop...")
     gen_kwargs = {
         "max_new_tokens": 256,
         "temperature":0.1,
@@ -266,6 +400,8 @@ def evaluation(model_args, data_args, training_args):
         vocab_center = embedding_matrix.mean(dim=0)
     
     for step, batch in enumerate(question_data):
+        if step % 10 == 0:
+            print(f"[Eval] Processing batch {step+1}/{len(question_data)}")
         batch_size = batch["input_ids"].size(0)
         with torch.no_grad():
             # encode the question
@@ -315,36 +451,12 @@ def evaluation(model_args, data_args, training_args):
                 # Append subsequent latents
                 latent_embeddings_for_consistency.append(latent_embd.squeeze(1))
 
-            # Compute and print radius stats for this batch
-            try:
-                tc = TrajectoryConsistencyLoss(
-                    space_type=training_args.trajectory_space_type,
-                    radius_threshold=training_args.trajectory_radius_threshold,
-                    curvature=training_args.trajectory_curvature,
-                )
-                latents_TBD = torch.stack(latent_embeddings_for_consistency, dim=0)  # [T,B,D]
-                stats = tc.compute_stats(latents_TBD)
-                if do_print:
-                    print(
-                        f"[Radius] batch={step} max={stats['radius_max'].item():.4f} "
-                        f"mean={stats['radius_mean'].item():.4f} "
-                        f"viol_rate={stats['violation_rate'].item():.4f} "
-                        f"thr={stats['radius_threshold'].item()}"
-                    )
-                # write to file
-                if radius_log_path:
-                    os.makedirs(os.path.dirname(radius_log_path), exist_ok=True)
-                    save_jsonl_line(radius_log_path, {
-                        "batch": int(step),
-                        "radius_max": float(stats['radius_max'].item()),
-                        "radius_mean": float(stats['radius_mean'].item()),
-                        "violation_rate": float(stats['violation_rate'].item()),
-                        "radius_threshold": float(stats['radius_threshold'].item()),
-                        "num_latent_steps": len(latent_embeddings_for_consistency),
-                        "batch_size": int(batch_size),
-                    })
-            except Exception as e:
-                print(f"[Radius] 统计失败: {e}")
+            latents_TBD = _stack_latents(latent_embeddings_for_consistency)
+            if latents_TBD is not None:
+                log_radius_stats(latents_TBD, training_args, step, batch_size, do_print, radius_log_path)
+                log_accel_stats(latents_TBD, training_args, step, batch_size, do_print, accel_log_path)
+                log_action_stats(latents_TBD, training_args, step, batch_size, do_print, action_log_path)
+                log_geodesic_stats(latents_TBD, training_args, step, batch_size, do_print, geodesic_log_path)
 
             if training_args.remove_eos:
                 eot_emb = model.get_embd(model.codi, model.model_name)(torch.tensor([model.eot_id], dtype=torch.long, device='cuda')).unsqueeze(0).to(device)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# LLaMA 1B Training with Decoder + Euclidean Trajectory Consistency
+# LLaMA 1B Training with Decoder + Acceleration (Second-Order Smoothness)
 
 # Load environment config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,8 +10,8 @@ mkdir -p "${SAVE_DIR}"
 
 python train.py \
 	--output_dir "${SAVE_DIR}" \
-	--expt_name gsm8k_llama1b_latent_decoder-trajectory-euclidean \
-	--logging_dir "${SAVE_DIR}/euclidean-logs" \
+	--expt_name gsm8k_llama1b_latent_decoder-acceleration \
+	--logging_dir "${SAVE_DIR}/acceleration-logs" \
 	--logging_steps 10 \
 	--model_name_or_path "${CODI_LLAMA1B_PATH}" \
 	--data_name icot \
@@ -53,7 +53,7 @@ python train.py \
 	--print_ref_model_stats False \
 	--max_token_num 200 \
 	--use_decoder True \
-	--use_trajectory_consistency True \
-	--trajectory_space_type euclidean \
-	--trajectory_radius_threshold 2 \
-	--trajectory_loss_factor 0.1
+	--use_trajectory_consistency False \
+	--use_trajectory_acceleration True \
+	--trajectory_max_acceleration 21 \
+	--trajectory_acceleration_loss_factor 0.1

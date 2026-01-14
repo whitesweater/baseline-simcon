@@ -1,5 +1,6 @@
 # Modified from https://github.com/tatsu-lab/stanford_alpaca/blob/main/train.py
 import copy
+import importlib
 import logging
 import os
 import re
@@ -11,7 +12,7 @@ import json
 import transformers
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.data import Dataset
-from transformers import Trainer
+from transformers import Trainer, TrainerCallback
 from safetensors.torch import load_file
 from tqdm import tqdm
 from math import ceil
@@ -113,6 +114,9 @@ class CustomTrainer(Trainer):
                 "distill_loss": _to_scalar(outputs.get("distill_loss")),
                 "ref_ce_loss": _to_scalar(outputs.get("ref_ce_loss")),
                 "trajectory_loss": _to_scalar(outputs.get("trajectory_loss")),
+                "acceleration_loss": _to_scalar(outputs.get("acceleration_loss")),
+                "action_loss": _to_scalar(outputs.get("action_loss")),
+                "geodesic_loss": _to_scalar(outputs.get("geodesic_loss")),
             }
             if not hasattr(self, "is_global_zero") or self.is_global_zero:
                 self.log(logs)
@@ -166,6 +170,58 @@ class CustomTrainer(Trainer):
         if self.state.global_step is not None:
             for k, v in logs.items():
                 super().log({k: v})
+
+
+class PeriodicTestCallback(TrainerCallback):
+    """在保存检查点时，用训练中的模型直接跑测试，避免重复加载模型。"""
+
+    def __init__(self, model_args, data_args, training_args):
+        self.model_args = copy.deepcopy(model_args)
+        self.data_args = copy.deepcopy(data_args)
+        self.training_args = copy.deepcopy(training_args)
+
+    def on_save(self, args, state, control, **kwargs):
+        if not getattr(args, "run_test_on_save", False):
+            return control
+        if hasattr(state, "is_world_process_zero") and not state.is_world_process_zero:
+            return control
+
+        try:
+            codi_test = importlib.import_module("CODI.runTest")
+        except Exception as exc:
+            logging.warning(f"跳过定期评测：无法导入 CODI.runTest ({exc})")
+            return control
+
+        trainer = kwargs.get("trainer")
+        if trainer is None:
+            logging.warning("跳过定期评测：callback 未拿到 trainer")
+            return control
+
+        eval_model_args = copy.deepcopy(self.model_args)
+        eval_data_args = copy.deepcopy(self.data_args)
+        eval_training_args = copy.deepcopy(self.training_args)
+
+        eval_data_args.data_name = eval_data_args.eval_data_name or eval_data_args.data_name
+        if eval_data_args.eval_batch_size:
+            eval_data_args.batch_size = eval_data_args.eval_batch_size
+
+        do_print_flag = getattr(args, "test_print_predictions", False)
+
+        try:
+            trainer.model.eval()
+            acc = codi_test.evaluation_with_model(
+                trainer.model,
+                trainer.tokenizer,
+                eval_model_args,
+                eval_data_args,
+                eval_training_args,
+                do_print_flag,
+            )
+            trainer.log({"periodic_test_accuracy": acc, "periodic_test_step": state.global_step})
+            trainer.model.train()
+        except Exception as exc:
+            logging.warning(f"定期评测在 step {state.global_step} 失败：{exc}")
+        return control
 
 def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
     """Tokenize a list of strings."""
@@ -515,7 +571,10 @@ def train():
     )
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
-    trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
+    callbacks = []
+    if getattr(training_args, "run_test_on_save", False):
+        callbacks.append(PeriodicTestCallback(model_args, data_args, training_args))
+    trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=training_args, callbacks=callbacks, **data_module)
     trainer.train()
 
     # to avoid the error of saving the model

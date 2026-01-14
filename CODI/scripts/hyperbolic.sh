@@ -56,6 +56,6 @@ python train.py \
 	--use_decoder True \
 	--use_trajectory_consistency True \
 	--trajectory_space_type hyperbolic \
-	--trajectory_radius_threshold 1.5 \
-	--trajectory_loss_factor 0.08 \
+	--trajectory_radius_threshold 2 \
+	--trajectory_loss_factor 0.1 \
 	--trajectory_curvature -1.0

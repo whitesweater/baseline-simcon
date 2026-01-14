@@ -23,5 +23,10 @@ uv run test.py \
 	--inf_latent_iterations 6 \
 	--inf_num_iterations 1 \
 	--remove_eos True \
+	--trajectory_radius_threshold 2 \
+	--trajectory_max_acceleration 1.0 \
+	--trajectory_action_lambda_energy 1.0 \
+	--trajectory_action_lambda_length 0.1 \
+	--trajectory_curvature -1.0 \
 	--use_lora True \
-	--ckpt_dir "${CODI_CKPT_DIR:-${CODI_SAVE_DIR}/gsm8k_llama1b_latent_decoder-trajectory-euclidean/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11/checkpoint-29990}"
+	--ckpt_dir "${CODI_CKPT_DIR:-${CODI_SAVE_DIR}/baseModel}"
