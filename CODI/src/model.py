@@ -666,8 +666,8 @@ class CODI(torch.nn.Module):
                 past_key_values = outputs.past_key_values
                 latent_embd = outputs.hidden_states[-1][:, -1, :].unsqueeze(1)
                 
-                # Collect latent embeddings for trajectory consistency
-                if self.use_trajectory_consistency:
+                # Collect latent embeddings for all trajectory losses
+                if self.use_trajectory_consistency or self.use_trajectory_acceleration or self.use_trajectory_action or self.use_trajectory_geodesic:
                     latent_embeddings_for_consistency.append(latent_embd.squeeze(1))
                 
                 if self.use_prj:
