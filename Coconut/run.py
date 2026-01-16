@@ -407,13 +407,23 @@ def main():
                         "train/loss": loss_scalar
                         * configs.gradient_accumulation_steps,
                     }
+                    # Log trajectory loss if available
+                    if hasattr(outputs, 'trajectory_loss') and outputs.trajectory_loss is not None:
+                        trajectory_loss_val = outputs.trajectory_loss.detach().item() if hasattr(outputs.trajectory_loss, 'item') else outputs.trajectory_loss
+                        log_dict["train/trajectory_loss"] = trajectory_loss_val
                     if wandb_run:
                         wandb_run.log(log_dict)
 
-                pbar.set_description(
+                # Build description with trajectory loss info if enabled
+                desc_str = (
                     f"Training Epoch: {epoch+1}/{configs.num_epochs}, batch {step}/{len(train_dataloader)} "
                     f"completed (loss: {round(float(loss.detach().float() * configs.gradient_accumulation_steps), 4)}"
                 )
+                if hasattr(outputs, 'trajectory_loss') and outputs.trajectory_loss is not None and hasattr(configs, 'use_trajectory_consistency') and configs.use_trajectory_consistency:
+                    traj_loss_val = outputs.trajectory_loss.detach().item() if hasattr(outputs.trajectory_loss, 'item') else outputs.trajectory_loss
+                    desc_str += f", traj_loss: {round(traj_loss_val, 6)}"
+                desc_str += ")"
+                pbar.set_description(desc_str)
             pbar.close()
             dist.barrier()
 

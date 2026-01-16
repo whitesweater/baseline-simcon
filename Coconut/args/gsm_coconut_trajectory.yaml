@@ -1,0 +1,66 @@
+# Coconut with Trajectory Consistency Loss
+# Usage: torchrun --nnodes 1 --nproc_per_node 8 run.py args/gsm_coconut_trajectory.yaml
+
+project: coconut
+save_path: ./ckpts
+name: gsm_coconut_trajectory
+
+only_eval: False
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+c_thought: 2
+epochs_per_stage: 3
+max_latent_stage: 5
+pad_latent_to_max: True
+
+save_only_improve: False
+uniform_prob: 0.0
+
+# Model and checkpoint paths (use relative paths or env variables)
+# For GPT2: ./pretrained/gpt2
+# For LLaMA: meta-llama/Llama-3.1-8B or local path
+model_id: ./pretrained/gpt2
+# Load from Coconut baseline checkpoint (Stage 1)
+load_model_path: ./ckpts/gsm-coconut/checkpoint_24
+
+wandb: False
+seed: 0
+resume: 0
+bf16: False
+
+# Dataset paths
+train_path: ./data/gsm_train.json
+val_path: ./data/gsm_test.json
+
+reset_optimizer: True
+batch_size_training: 8
+debug: False
+gradient_accumulation_steps: 2
+num_epochs: 25
+lr: !!float "1e-4"
+weight_decay: 0.01
+
+w_prompt: False
+mode: coconutgpt_same_word_embedding
+explain_mode: v1_aug
+
+# Training method: full, only_base_causallm, only_expainable_llm
+training_method: full
+
+# ===== Trajectory Consistency Settings =====
+# Enable trajectory consistency loss
+use_trajectory_consistency: True
+
+# Radius threshold: points outside this radius from center incur penalty
+# Larger value = more lenient constraint
+# Typical range: 1.0 - 10.0 depending on hidden dimension scale
+trajectory_radius_threshold: 2.0
+
+# Loss factor: multiplier for trajectory consistency loss
+# Start with small values (0.01 - 0.1) to avoid destabilizing training
+trajectory_loss_factor: 0.1

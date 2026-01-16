@@ -7,7 +7,10 @@ from torch.nn import CrossEntropyLoss
 from collections import namedtuple
 from transformers.models.gpt2 import GPT2LMHeadModel
 import copy
-Outputs = namedtuple("Outputs", ["loss", "inputs_embeds", "logits"])
+from trajectory_consistency import TrajectoryConsistencyLoss
+
+Outputs = namedtuple("Outputs", ["loss", "inputs_embeds", "logits", "trajectory_loss"])
+Outputs.__new__.__defaults__ = (None, None, None, None)  # Make trajectory_loss optional
 MAX_N_LATENT = 8
 
 
@@ -315,9 +318,24 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
         else:
             self.embedding = self.base_causallm.get_input_embeddings()
 
+        # Trajectory Consistency Loss
+        self.use_trajectory_consistency = getattr(configs, 'use_trajectory_consistency', False)
+        self.trajectory_loss_factor = getattr(configs, 'trajectory_loss_factor', 0.1)
+        if self.use_trajectory_consistency:
+            self.trajectory_consistency_loss = TrajectoryConsistencyLoss(
+                radius_threshold=getattr(configs, 'trajectory_radius_threshold', 2.0),
+                eps=1e-8
+            )
+            print(f"[Trajectory Consistency] Enabled with radius_threshold={getattr(configs, 'trajectory_radius_threshold', 2.0)}, loss_factor={self.trajectory_loss_factor}")
+
     def forward(self, input_ids, attention_mask, labels, position_ids, **kwargs):
         logits = []
         loss = 0.0
+        trajectory_loss = torch.tensor(0.0, device=input_ids.device)
+        
+        # Collect latent embeddings for trajectory consistency loss
+        latent_embeddings_for_consistency = []
+        
         latent_indices = (
             input_ids == self.latent_token_id
         ).nonzero()  # (num_latent_tokens_in_the_batch, 2)
@@ -408,6 +426,13 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
                 if len(mask_list) > pass_idx
             ]
 
+            # Collect latent embeddings for trajectory consistency loss
+            # These are the hidden states that will replace the latent tokens
+            if self.use_trajectory_consistency:
+                for batch_idx, token_idx in filling_indices:
+                    latent_embd = hidden_states[batch_idx, token_idx - 1 - hidden_states_offset, :]
+                    latent_embeddings_for_consistency.append(latent_embd)
+
             # to avoid in-place operations
             # break down inputs_embeds (bs, len, hidden_size) into a list of list of 1-d tensors
             tensor_list = [
@@ -434,6 +459,24 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
                     for batch_idx in range(inputs_embeds.shape[0])
                 ]
             )
+
+        # Compute trajectory consistency loss if enabled (CoconutGPT_Same_Word_Embedding only)
+        if self.use_trajectory_consistency and len(latent_embeddings_for_consistency) > 0:
+            batch_size = input_ids.shape[0]
+            num_latent_per_batch = max_n_latents
+            
+            if num_latent_per_batch >= 2:  # Need at least 2 points for meaningful trajectory
+                try:
+                    stacked_embeddings = torch.stack(latent_embeddings_for_consistency, dim=0)
+                    hidden_dim = stacked_embeddings.shape[-1]
+                    # Reshape: embeddings are collected pass by pass, each pass adds batch_size embeddings
+                    if stacked_embeddings.shape[0] == batch_size * num_latent_per_batch:
+                        # [total] -> [T, B, D]
+                        stacked_embeddings = stacked_embeddings.view(num_latent_per_batch, batch_size, hidden_dim)
+                        trajectory_loss = self.trajectory_consistency_loss(stacked_embeddings)
+                        trajectory_loss = trajectory_loss * self.trajectory_loss_factor
+                except Exception as e:
+                    pass  # Skip if cannot compute trajectory loss
 
         # final pass
         outputs = self.base_causallm(
@@ -784,7 +827,11 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
                 loss = 0.0
             loss += 1.0 * loss_explain_all / c_thought_num
 
-        return Outputs(loss=loss, inputs_embeds=inputs_embeds, logits=logits)
+        # Add trajectory consistency loss to total loss
+        if self.use_trajectory_consistency and trajectory_loss.item() > 0:
+            loss = loss + trajectory_loss
+
+        return Outputs(loss=loss, inputs_embeds=inputs_embeds, logits=logits, trajectory_loss=trajectory_loss)
 
     def train(self):
         self.base_causallm.train()

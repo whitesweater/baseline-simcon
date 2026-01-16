@@ -220,3 +220,5 @@ CODI/cache/**
 CODI/assets/**
 CODI/results1/**
 CODI/modelspace/**
+CODI/results_old/*
+CODI/nohup.out
