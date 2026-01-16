@@ -26,19 +26,19 @@ uniform_prob: 0.0
 model_id: ./pretrained/gpt2
 load_model_path: ./ckpts/gsm_cot/checkpoint_20
 
-wandb: False
+wandb: True
 seed: 0
 resume: 3
-bf16: False
+bf16: True
 
 # for debug
 train_path: ./data/gsm_train.json
 val_path: ./data/gsm_test.json
 
 reset_optimizer: True
-batch_size_training: 8
+batch_size_training: 32
 debug: False
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 1
 num_epochs: 25
 lr: !!float "1e-4"
 weight_decay: 0.01

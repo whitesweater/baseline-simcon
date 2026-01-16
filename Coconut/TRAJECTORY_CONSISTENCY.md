@@ -69,7 +69,7 @@ huggingface-cli download meta-llama/Llama-3.1-8B --local-dir ./pretrained/llama-
 首先需要训练一个 Coconut baseline 模型：
 
 ```bash
-torchrun --nnodes 1 --nproc_per_node 8 run.py args/gsm_coconut.yaml
+torchrun --nnodes 1 --nproc_per_node 4 run.py args/gsm_coconut.yaml
 ```
 
 或者使用已有的 checkpoint。
