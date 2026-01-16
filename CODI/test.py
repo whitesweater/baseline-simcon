@@ -305,11 +305,13 @@ def evaluation(model_args, data_args, training_args):
     model.to(torch.bfloat16)
     print("[Eval] Model moved to CUDA and set to bfloat16.")
     
-    # 从环境变量获取结果输出路径
-    radius_log_path = os.path.join(CODI_RESULT_DIR, f"radius_{data_args.data_name}.jsonl")
-    accel_log_path = os.path.join(CODI_RESULT_DIR, f"accel_{data_args.data_name}.jsonl")
-    action_log_path = os.path.join(CODI_RESULT_DIR, f"action_{data_args.data_name}.jsonl")
-    geodesic_log_path = os.path.join(CODI_RESULT_DIR, f"geodesic_{data_args.data_name}.jsonl")
+    # 从环境变量获取结果输出路径，按数据集分开保存
+    result_subdir = os.path.join(CODI_RESULT_DIR, data_args.data_name)
+    os.makedirs(result_subdir, exist_ok=True)
+    radius_log_path = os.path.join(result_subdir, f"radius_{data_args.data_name}.jsonl")
+    accel_log_path = os.path.join(result_subdir, f"accel_{data_args.data_name}.jsonl")
+    action_log_path = os.path.join(result_subdir, f"action_{data_args.data_name}.jsonl")
+    geodesic_log_path = os.path.join(result_subdir, f"geodesic_{data_args.data_name}.jsonl")
     ######################
     #      dataset       #
     ######################
@@ -317,22 +319,22 @@ def evaluation(model_args, data_args, training_args):
     question_name = "question"
     answer_name = "answer"
     if "gsm-hard" == data_args.data_name:
-        # dataset = load_dataset("juyoung-trl/gsm-hard")
-        # test_set = dataset['train']
-        # question_name = "instruction"
-        # answer_name = "response"
-        test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm8k_hard_format.json')
+        dataset = load_dataset("juyoung-trl/gsm-hard")
+        test_set = dataset['train']
+        question_name = "instruction"
+        answer_name = "response"
+        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm8k_hard_format.json')
     elif "multi-arith" == data_args.data_name:
-        # dataset = load_dataset("ChilleD/MultiArith")
-        # test_set = dataset['test']
-        # answer_name = "final_ans"
-        test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/multiarith_format.json')
+        dataset = load_dataset("ChilleD/MultiArith")
+        test_set = dataset['test']
+        answer_name = "final_ans"
+        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/multiarith_format.json')
     elif "svamp" == data_args.data_name:
-        # dataset = load_dataset("ChilleD/SVAMP")
-        # test_set = concatenate_datasets([dataset["train"], dataset["test"]])
-        # question_name = "question_concat"
-        # answer_name = "Answer"
-        test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/svamp_format.json')
+        dataset = load_dataset("ChilleD/SVAMP")
+        test_set = concatenate_datasets([dataset["train"], dataset["test"]])
+        question_name = "question_concat"
+        answer_name = "Answer"
+        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/svamp_format.json')
     elif "commonsense" == data_args.data_name:
         dataset = load_dataset("zen-E/CommonsenseQA-GPT4omini")
         test_set = dataset['validation']
@@ -574,9 +576,10 @@ def evaluation(model_args, data_args, training_args):
                     print(f"Prediction={extract_answer_number(decoded_pred, data_args.data_name)}; Groundtruth={answer[step*data_args.batch_size+mini_step]}")
                     print("")
                 ans_pred_list.append(extract_answer_number(decoded_pred, data_args.data_name))
-    # 保存结果到环境变量指定的目录
-    os.makedirs(CODI_RESULT_DIR, exist_ok=True)
-    result_json_path = os.path.join(CODI_RESULT_DIR, f"{data_args.data_name}.json")
+    # 保存结果到环境变量指定的目录，按数据集分开
+    result_subdir = os.path.join(CODI_RESULT_DIR, data_args.data_name)
+    os.makedirs(result_subdir, exist_ok=True)
+    result_json_path = os.path.join(result_subdir, f"{data_args.data_name}.json")
     write_json({"ans": ans_pred_list}, result_json_path)
     
     accuracy = compute_accuracy(answer, ans_pred_list)
@@ -586,7 +589,9 @@ def evaluation(model_args, data_args, training_args):
     print(f"Results saved to: {result_json_path}")
     
     if model_args.save_ablation:
-        ablation_path = os.path.join(CODI_RESULT_DIR, f"{data_args.data_name}_ablation.jsonl")
+        result_subdir = os.path.join(CODI_RESULT_DIR, data_args.data_name)
+        os.makedirs(result_subdir, exist_ok=True)
+        ablation_path = os.path.join(result_subdir, f"{data_args.data_name}_ablation.jsonl")
         save_jsonl_line(ablation_path, {
             'model_name': '-'.join(model_args.ckpt_dir.split('/')[5:]),
             'data_name': data_args.data_name,

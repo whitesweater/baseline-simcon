@@ -21,8 +21,8 @@ source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found"; ex
 # 默认配置
 # =============================================================================
 TRAINED_DIR="${CODI_SAVE_DIR}/trained"
-RESULTS_DIR="${SCRIPT_DIR}/../results"
-DATA_NAME="gsm8k"
+RESULTS_DIR="${CODI_RESULT_DIR}"
+DATA_NAMES="gsm8k svamp gsm-hard multi-arith commonsense"  # 默认测试 gsm8k，支持多个数据集用空格分隔
 NUM_RUNS=1
 MODELS=""  # 空表示测试所有
 DRY_RUN=false
@@ -35,12 +35,21 @@ usage() {
     echo "用法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  -r, --runs N        每个模型运行的次数 (默认: 1)"
-    echo "  -m, --models LIST   要测试的模型列表，空格分隔 (默认: 全部)"
-    echo "  -d, --data NAME     数据集名称: gsm8k, svamp, gsm-hard, multi-arith (默认: gsm8k)"
-    echo "  -o, --output DIR    结果输出目录 (默认: results/)"
-    echo "  --dry-run           只显示命令，不实际运行"
-    echo "  -h, --help          显示帮助"
+    echo "  -r, --runs N          每个模型运行的次数 (默认: 1)"
+    echo "  -m, --models LIST     要测试的模型列表，空格分隔 (默认: 全部)"
+    echo "  -d, --datasets NAMES  数据集名称列表，空格分隔 (默认: gsm8k)"
+    echo "                        可用: gsm8k, svamp, gsm-hard, multi-arith, commonsense"
+    echo "  -o, --output DIR      结果输出目录 (默认: ${CODI_RESULT_DIR})"
+    echo "  --dry-run             只显示命令，不实际运行"
+    echo "  -h, --help            显示帮助"
+    echo ""
+    echo "注意:"
+    echo "  - 数据集会在首次使用时自动下载（通过 HuggingFace）"
+    echo "  - 循环顺序: 模型 -> 数据集 -> 运行次数（避免重复加载模型）"
+    echo ""
+    echo "示例:"
+    echo "  $0 -d \"gsm8k svamp\" -r 3                      # 在两个数据集上各运行3次"
+    echo "  $0 -m euclidean -d \"gsm8k gsm-hard\"           # 指定模型和数据集"
     echo ""
     echo "可用模型 (${TRAINED_DIR}):"
     ls -1 "${TRAINED_DIR}" 2>/dev/null | sed 's/^/  - /'
@@ -57,8 +66,8 @@ while [[ $# -gt 0 ]]; do
             MODELS="$2"
             shift 2
             ;;
-        -d|--data)
-            DATA_NAME="$2"
+        -d|--datasets|--data)
+            DATA_NAMES="$2"
             shift 2
             ;;
         -o|--output)
@@ -93,8 +102,13 @@ mkdir -p "${RESULTS_DIR}"
 LOG_FILE="${RESULTS_DIR}/batch_test_${TIMESTAMP}.log"
 SUMMARY_FILE="${RESULTS_DIR}/batch_summary_${TIMESTAMP}.csv"
 
+# 为每个数据集创建子目录
+for data_name in $DATA_NAMES; do
+    mkdir -p "${RESULTS_DIR}/${data_name}"
+done
+
 # 初始化 summary CSV
-echo "timestamp,model,run_id,data,accuracy,total_samples,correct,elapsed_sec" > "${SUMMARY_FILE}"
+echo "timestamp,model,dataset,run_id,accuracy,total_samples,correct,elapsed_sec" > "${SUMMARY_FILE}"
 
 # =============================================================================
 # 日志函数
@@ -110,7 +124,8 @@ log() {
 # =============================================================================
 run_single_test() {
     local model_name=$1
-    local run_id=$2
+    local data_name=$2
+    local run_id=$3
     local ckpt_dir="${TRAINED_DIR}/${model_name}"
     
     # 检查模型目录是否存在
@@ -119,16 +134,18 @@ run_single_test() {
         return 1
     fi
     
-    local output_dir="${CODI_SAVE_DIR}/testoutput/${model_name}_run${run_id}_${TIMESTAMP}"
-    local result_file="${RESULTS_DIR}/${model_name}_${DATA_NAME}_run${run_id}.jsonl"
+    local output_dir="${CODI_SAVE_DIR}/testoutput/${data_name}/${model_name}_run${run_id}_${TIMESTAMP}"
+    local result_subdir="${RESULTS_DIR}/${data_name}"
+    mkdir -p "${result_subdir}"
     
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    log "📊 测试: model=${model_name}, run=${run_id}/${NUM_RUNS}, data=${DATA_NAME}"
+    log "📊 测试: model=${model_name}, dataset=${data_name}, run=${run_id}/${NUM_RUNS}"
     log "   ckpt: ${ckpt_dir}"
+    log "   结果: ${result_subdir}/"
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     local cmd="python ${SCRIPT_DIR}/../test.py \
-        --data_name \"${DATA_NAME}\" \
+        --data_name \"${data_name}\" \
         --output_dir \"${output_dir}\" \
         --model_name_or_path \"${CODI_LLAMA1B_PATH}\" \
         --seed $((11 + run_id)) \
@@ -175,15 +192,15 @@ run_single_test() {
         log "✅ 完成: accuracy=${accuracy}, time=${elapsed}s"
         
         # 记录到 summary
-        echo "${TIMESTAMP},${model_name},${run_id},${DATA_NAME},${accuracy},${total},${correct},${elapsed}" >> "${SUMMARY_FILE}"
+        echo "${TIMESTAMP},${model_name},${data_name},${run_id},${accuracy},${total},${correct},${elapsed}" >> "${SUMMARY_FILE}"
         
-        # 保存详细输出
-        echo "$test_output" >> "${RESULTS_DIR}/${model_name}_${DATA_NAME}_run${run_id}_output.txt"
+        # 保存详细输出（按数据集分类）
+        echo "$test_output" >> "${result_subdir}/${model_name}_run${run_id}_output.txt"
         
     else
-        log "❌ 失败: ${model_name} run ${run_id}"
-        echo "$test_output" >> "${RESULTS_DIR}/${model_name}_${DATA_NAME}_run${run_id}_error.txt"
-        echo "${TIMESTAMP},${model_name},${run_id},${DATA_NAME},FAILED,,,," >> "${SUMMARY_FILE}"
+        log "❌ 失败: ${model_name} (${data_name}) run ${run_id}"
+        echo "$test_output" >> "${result_subdir}/${model_name}_run${run_id}_error.txt"
+        echo "${TIMESTAMP},${model_name},${data_name},${run_id},FAILED,,," >> "${SUMMARY_FILE}"
         return 1
     fi
 }
@@ -197,11 +214,13 @@ log "===========================================================================
 log "配置:"
 log "  - 模型目录: ${TRAINED_DIR}"
 log "  - 模型列表: ${MODELS}"
-log "  - 数据集: ${DATA_NAME}"
+log "  - 数据集: ${DATA_NAMES}"
 log "  - 运行次数: ${NUM_RUNS}"
 log "  - 结果目录: ${RESULTS_DIR}"
 log "  - 日志文件: ${LOG_FILE}"
 log "  - 汇总文件: ${SUMMARY_FILE}"
+log "  - 循环顺序: 模型 -> 数据集 -> 运行次数 (避免重复加载)"
+log "  - 数据集下载: 自动（首次使用时通过 HuggingFace）"
 log "============================================================================"
 
 total_tests=0
@@ -209,13 +228,23 @@ passed_tests=0
 failed_tests=0
 
 for model in $MODELS; do
-    for ((run=0; run<NUM_RUNS; run++)); do
-        total_tests=$((total_tests + 1))
-        if run_single_test "$model" "$run"; then
-            passed_tests=$((passed_tests + 1))
-        else
-            failed_tests=$((failed_tests + 1))
-        fi
+    log ""
+    log "═══════════════════════════════════════════════════════════════════════════════"
+    log "🔧 模型: ${model}"
+    log "═══════════════════════════════════════════════════════════════════════════════"
+    
+    for data_name in $DATA_NAMES; do
+        log ""
+        log "📊 数据集: ${data_name}"
+        
+        for ((run=0; run<NUM_RUNS; run++)); do
+            total_tests=$((total_tests + 1))
+            if run_single_test "$model" "$data_name" "$run"; then
+                passed_tests=$((passed_tests + 1))
+            else
+                failed_tests=$((failed_tests + 1))
+            fi
+        done
     done
 done
 
