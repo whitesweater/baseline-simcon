@@ -25,6 +25,7 @@ import transformers
 from torch.nn import functional as F
 import json
 import numpy as np
+from huggingface_hub import hf_hub_download
 
 from peft import PeftModel, LoraConfig, TaskType, get_peft_model
 from datasets import load_dataset, concatenate_datasets
@@ -88,6 +89,38 @@ def write_json(data, file_path):
             json.dump(data, file, ensure_ascii=False, indent=4)
     except Exception as e:
         print(f"写入JSON文件时出错: {e}")
+
+
+def load_state_dict_from_ckpt(model_args):
+    """
+    优先加载本地 checkpoint；若未提供路径则尝试从 HuggingFace Hub 下载。
+    返回 None 表示直接使用 model_name_or_path 中的权重。
+    """
+    ckpt_dir = model_args.ckpt_dir
+    if not ckpt_dir:
+        return None
+
+    safetensor_local = os.path.join(ckpt_dir, "model.safetensors")
+    bin_local = os.path.join(ckpt_dir, "pytorch_model.bin")
+
+    if os.path.exists(safetensor_local):
+        return load_file(safetensor_local)
+    if os.path.exists(bin_local):
+        return torch.load(bin_local, map_location="cpu")
+
+    # 将 ckpt_dir 视作 HF Hub 的 repo_id
+    try:
+        safetensor_remote = hf_hub_download(repo_id=ckpt_dir, filename="model.safetensors", token=model_args.token)
+        return load_file(safetensor_remote)
+    except Exception:
+        pass
+
+    try:
+        bin_remote = hf_hub_download(repo_id=ckpt_dir, filename="pytorch_model.bin", token=model_args.token)
+        return torch.load(bin_remote, map_location="cpu")
+    except Exception as e:
+        print(f"[Eval] 无法从 {ckpt_dir} 加载 checkpoint: {e}")
+        return None
 
 
 def _stack_latents(latent_embeddings_for_consistency):
@@ -240,14 +273,14 @@ def evaluation(model_args, data_args, training_args):
     #    model.codi.resize_token_embeddings(128261)
     # import pdb; pdb.set_trace()
     print("[Eval] Loading checkpoint...")
-    try:
-        state_dict = load_file(os.path.join(model_args.ckpt_dir, "model.safetensors"))
-    except Exception:
-        state_dict = torch.load(os.path.join(model_args.ckpt_dir, "pytorch_model.bin"))
+    state_dict = load_state_dict_from_ckpt(model_args)
+    if state_dict is not None:
+        model.load_state_dict(state_dict, strict=False)
+    else:
+        print("[Eval] 未提供 ckpt_dir，直接使用 model_name_or_path 中的权重")
     
     # new_state_dict = { k.replace("coconut", "codi"): v for k, v in state_dict.items() }
     # torch.save(new_state_dict, "/scratch/prj/inf_multimodal_qa/scratch_tmp/transfer/pytorch_model.bin")
-    model.load_state_dict(state_dict, strict=False)
     model.codi.tie_weights()
     
     tokenizer_path = model_args.model_name_or_path 
