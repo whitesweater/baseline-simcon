@@ -224,3 +224,8 @@ CODI/results_old/*
 CODI/nohup.out
 pretrained/**
 Coconut/data/
+uv.lock
+local_models/
+SemCoT/results/
+CODI/resultsV1/
+

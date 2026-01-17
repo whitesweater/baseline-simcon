@@ -5,34 +5,35 @@ description = "SIM-CoT baseline implementation"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # 核心依赖（基于 CODI 实测版本，放宽上界）
-    "torch>=2.5.1",                  # CODI: 2.7.1
-    "transformers>=4.46.2",          # CODI: 4.52.4
-    "accelerate>=1.7.0",             # CODI: 1.7.0
-    "peft>=0.13.0",                  # CODI: 0.15.2
-    "datasets>=3.1.0",               # CODI: 3.6.0
+    "torch>=2.5.1", # CODI: 2.7.1
+    "transformers>=4.46.2", # CODI: 4.52.4
+    "accelerate>=1.7.0", # CODI: 1.7.0
+    "peft>=0.13.0", # CODI: 0.15.2
+    "datasets>=3.1.0", # CODI: 3.6.0
     # 数值/数据处理
-    "numpy>=1.24.0",                 # CODI: 2.2.6
-    "pandas>=2.2.0",                 # CODI: 2.2.3
-    "pyarrow>=14.0.0",               # CODI: 20.0.0
-    "tqdm>=4.66.0",                  # CODI: 4.67.1
+    "numpy>=1.24.0", # CODI: 2.2.6
+    "pandas>=2.2.0", # CODI: 2.2.3
+    "pyarrow>=14.0.0", # CODI: 20.0.0
+    "tqdm>=4.66.0", # CODI: 4.67.1
     # HuggingFace 生态
-    "huggingface-hub>=0.20.0",       # CODI: 0.32.4
-    "tokenizers>=0.20.0",            # CODI: 0.21.1
-    "safetensors>=0.4.0",            # CODI: 0.5.3
+    "huggingface-hub>=0.20.0", # CODI: 0.32.4
+    "tokenizers>=0.20.0", # CODI: 0.21.1
+    "safetensors>=0.4.0", # CODI: 0.5.3
     # 训练监控
-    "tensorboardX>=2.6.0",           # CODI: 2.6.2.2
+    "tensorboardx>=2.6.0", # CODI: 2.6.2.2
     # 工具库
-    "pyyaml>=6.0",                   # CODI: 6.0.2
-    "protobuf>=3.20.0",              # CODI: 6.31.1
-    "psutil>=5.9.0",                 # CODI: 7.0.0
-    "regex>=2024.0.0",               # CODI: 2024.11.6
-    "requests>=2.31.0",              # CODI: 2.32.3
-    "jinja2>=3.1.0",                 # CODI: 3.1.6
+    "pyyaml>=6.0", # CODI: 6.0.2
+    "protobuf>=3.20.0", # CODI: 6.31.1
+    "psutil>=5.9.0", # CODI: 7.0.0
+    "regex>=2024.0.0", # CODI: 2024.11.6
+    "requests>=2.31.0", # CODI: 2.32.3
+    "jinja2>=3.1.0", # CODI: 3.1.6
     "tensorboard",
     "tabulate>=0.9.0",
     "matplotlib>=3.10.8",
     "seaborn>=0.13.2",
     "wandb>=0.24.0",
+    "modelscope>=1.33.0",
 ]
 
 [project.optional-dependencies]
@@ -48,14 +49,15 @@ modelscope = [
     "modelscope>=1.10.0",
 ]
 
-# PyPI 镜像源配置（与 SIM-CoT 保持一致）
-[[tool.uv.index]]
-url = "https://pypi.org/simple/"
+[tool.uv]
+python-preference = "only-managed"
 
-
+# PyPI 镜像源配置
 [[tool.uv.index]]
 url = "https://mirrors.cloud.tencent.com/pypi/simple/"
 
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
 
 [[tool.uv.index]]
 url = "http://harbor.internal.com:8081/repository/pypi-hkust/simple/"
