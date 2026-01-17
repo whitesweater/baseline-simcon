@@ -1,6 +1,9 @@
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
+
 SAVE_DIR=${SAVE_DIR:-/data/yhao/baseline/CODI/outputs/test_llama1b_eval}
 # 留空则不加载本地微调权重，直接用 HuggingFace 完整模型权重
-CKPT_DIR=${CKPT_DIR:-}
+CKPT_DIR=${CKPT_DIR:-"/data/yhao/baseline/CODI/outputs/trained/baseModel"}
 
 # HuggingFace config: 默认使用 hf-mirror.com，独立缓存目录避免旧缓存污染；可在执行前覆盖
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
@@ -11,12 +14,12 @@ export HF_HUB_FORCE_DOWNLOAD=1
 python test.py \
 	--data_name "gsm8k" \
 	--output_dir "$SAVE_DIR" \
-	--model_name_or_path /data/yhao/sim-con/modelscope/LLM-Research/models--internlm--SIM_COT-LLaMA3-CODI-1B/ \
+	--model_name_or_path "/data/yhao/sim-con/modelscope/LLM-Research/Llama-3.2-1B-Instruct" \
 	--seed 11 \
 	--model_max_length 512 \
 	--bf16 \
 	--lora_r 128 --lora_alpha 32 --lora_init \
-	--batch_size 16 \
+	--batch_size 128 \
 	--greedy True \
 	--num_latent 6 \
 	--use_prj True \

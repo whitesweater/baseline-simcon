@@ -59,8 +59,11 @@ def run_baseline(logger, args, train_data, eval_data):
 
 def load_model_configs(args):
     if args.config == "small":
-        args.teacher_model_name = "meta-llama/Llama-2-7b-chat-hf"
-        args.student_model_name = "princeton-nlp/Sheared-LLaMA-1.3B"
+        # args.teacher_model_name = "meta-llama/Llama-2-7b-chat-hf"
+        args.teacher_model_name = "/data/yhao/sim-con/modelscope/LLM-Research/shakechen/Llama-2-7b-chat-hf"
+        # args.student_model_name = "/data/yhao/sim-con/modelscope/LLM-Research//princeton-nlp/Sheared-LLaMA-1___3B"
+        args.student_model_name = "/data/yhao/sim-con/modelscope/LLM-Research/SemCoT-Sheared-LLaMA-1.3B-gsm8k"
+        # args.student_model_name = "princeton-nlp/Sheared-LLaMA-1.3B"
         args.teacher_hid_dim = 4096
     elif args.config == "mistral":
         args.teacher_model_name = "mistralai/Mistral-7B-Instruct-v0.2"
@@ -376,6 +379,7 @@ def main(args):
             utils.append_to_jsonl_file(f"{args.result_path}/eval_res.jsonl", metric)
 
 if __name__ == "__main__":
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
     args = parse_args()
     args.device = f"cuda:{args.device}" if torch.cuda.is_available() else "cpu"
     # Set random seed

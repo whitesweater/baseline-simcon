@@ -59,9 +59,24 @@ class CustomST(nn.Module):
         if position_ids is None:
             position_ids = torch.arange(seq_length).expand(batch_size, -1).to(device)
 
-        # Prepare attention mask
+        # Prepare attention mask for LLaMA layers (needs to be 4D for causal attention)
         if attention_mask is None:
             attention_mask = torch.ones((batch_size, seq_length)).to(device)
+        
+        # Convert 2D mask to 4D causal mask format required by LLaMA
+        # Shape: (batch_size, 1, seq_len, seq_len)
+        if attention_mask.dim() == 2:
+            # Create causal mask
+            causal_mask = torch.triu(
+                torch.ones((seq_length, seq_length), device=device, dtype=torch.bool), 
+                diagonal=1
+            )
+            # Expand to batch size: (batch_size, 1, seq_len, seq_len)
+            attention_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+            # Invert to convert to 0s for attend, 1s for mask
+            attention_mask = ~attention_mask
+            # Mask out padding tokens if needed (all 1s currently means all tokens are valid)
+            attention_mask = attention_mask.float()
 
         # Generate position embeddings
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
@@ -78,23 +93,27 @@ class CustomST(nn.Module):
         hidden_states = self.norm(hidden_states)
 
         # Apply attention mask for proper mean pooling
+        # Convert 4D mask back to 2D for pooling: (batch_size, seq_len)
         if attention_mask is not None:
-            if attention_mask.dim() < hidden_states.dim():
-                attention_mask = attention_mask.unsqueeze(-1).expand(
-                    hidden_states.size()
-                )
+            if attention_mask.dim() == 4:
+                # Extract 2D mask from 4D causal mask
+                pooling_mask = attention_mask.squeeze(1).squeeze(1)  # (batch_size, seq_len)
+            else:
+                pooling_mask = attention_mask
+            
+            pooling_mask = pooling_mask.unsqueeze(-1).expand(hidden_states.size())
             sum_mask = torch.clamp(
-                attention_mask.sum(dim=1), min=1e-9
+                pooling_mask.sum(dim=1), min=1e-9
             )  # Avoid division by zero
-            pooled_output = (hidden_states * attention_mask).sum(dim=1) / sum_mask
-            del sum_mask
+            pooled_output = (hidden_states * pooling_mask).sum(dim=1) / sum_mask
+            del sum_mask, pooling_mask
         else:
             # Simple mean pooling
             pooled_output = hidden_states.mean(dim=1)
 
         # Project to embedding space
         sentence_embedding = self.embedding_projection(pooled_output)
-        del pooled_output, hidden_states, attention_mask, position_ids, position_embeddings
+        del pooled_output, hidden_states, attention_mask, position_ids
         return sentence_embedding
 
     @classmethod
