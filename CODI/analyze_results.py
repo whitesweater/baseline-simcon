@@ -510,6 +510,16 @@ class ResultsAnalyzer:
                 if val == pivot[dataset].max():
                     ax.text(j + offset, val + 1, 'BEST', ha='center', fontsize=8, 
                            fontweight='bold', color='red')
+                # 显示具体数值
+                ax.text(
+                    j + offset,
+                    val + 1.5,
+                    f"{val:.1f}%",
+                    ha='center',
+                    va='bottom',
+                    fontsize=8,
+                    color='black'
+                )
         
         ax.set_xlabel('Dataset', fontsize=14)
         ax.set_ylabel('Accuracy (%)', fontsize=14)
