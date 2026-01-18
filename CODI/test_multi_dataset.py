@@ -712,6 +712,7 @@ class MultiDatasetEvaluator:
             "temperature": 0.1,
             "top_k": 40,
             "top_p": 0.95,
+            "do_sample": True,
         }
         
         all_predictions = []
@@ -844,12 +845,30 @@ def main():
     # 初始化评估器并加载模型（只加载一次！）
     evaluator = MultiDatasetEvaluator(model_args, training_args)
     evaluator.load_model()
+
+    def _get_start_run_id(model_name: str, dataset: str) -> int:
+        """扫描已有 run_* 目录，返回起始 run_id（最大值 + 1）。"""
+        dataset_dir = os.path.join(results_manager.models_dir, model_name, dataset)
+        if not os.path.isdir(dataset_dir):
+            return 0
+        pattern = re.compile(r"^run_(\d+)$")
+        max_id = -1
+        for name in os.listdir(dataset_dir):
+            match = pattern.match(name)
+            if not match:
+                continue
+            run_path = os.path.join(dataset_dir, name)
+            if os.path.isdir(run_path):
+                max_id = max(max_id, int(match.group(1)))
+        return max_id + 1
     
     # 在所有数据集上测试
     for dataset in datasets:
-        for run_id in range(multi_args.num_runs):
+        start_run_id = _get_start_run_id(evaluator.model_name, dataset)
+        for i in range(multi_args.num_runs):
+            run_id = start_run_id + i
             print(f"\n{'='*80}")
-            print(f"测试: {dataset} (Run {run_id + 1}/{multi_args.num_runs})")
+            print(f"测试: {dataset} (Run {i + 1}/{multi_args.num_runs}, ID {run_id})")
             print(f"{'='*80}")
             
             try:
