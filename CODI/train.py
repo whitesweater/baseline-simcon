@@ -536,8 +536,8 @@ def train():
         logging.warning("Downloading Data")
         if "icot" in data_args.data_name:
             # gsm8k_aug_path = os.environ.get('CODI_GSM8K_AUG_PATH', 'zen-E/GSM8k-Aug')
-            dataset = load_dataset("zen-E/GSM8k-Aug")["train"]
-            # dataset = None
+            # dataset = load_dataset("zen-E/GSM8k-Aug")["train"]
+            dataset = None
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
             data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
             return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
