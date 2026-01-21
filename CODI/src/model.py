@@ -755,7 +755,9 @@ class CODI(torch.nn.Module):
 
         # Calculate trajectory consistency loss
         if self.use_trajectory_consistency and len(latent_embeddings_for_consistency) > 0:
-            trajectory_loss_total = self.trajectory_consistency_loss(latent_embeddings_for_consistency)
+            # Stack list of tensors into a single tensor [T, B, D] for trajectory consistency
+            latent_embeddings_tensor = torch.stack(latent_embeddings_for_consistency, dim=0)
+            trajectory_loss_total = self.trajectory_consistency_loss(latent_embeddings_tensor)
             trajectory_loss_total *= self.trajectory_loss_factor
         else:
             trajectory_loss_total = torch.tensor(0.0, device=ce_loss_total.device if ce_loss_total != 0 else ref_ce_loss.device)
