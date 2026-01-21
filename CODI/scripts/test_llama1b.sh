@@ -3,7 +3,7 @@ source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Cop
 
 SAVE_DIR=${SAVE_DIR:-/data/yhao/baseline/CODI/outputs/test_llama1b_eval}
 # 留空则不加载本地微调权重，直接用 HuggingFace 完整模型权重
-CKPT_DIR=${CKPT_DIR:-"/data/yhao/baseline/CODI/outputs/trained/baseModel"}
+# CKPT_DIR=${CKPT_DIR:-"/data/yhao/baseline/CODI/outputs/trained/baseModel"}
 
 python te1.py \
 	--data_name "gsm8k" \
@@ -24,4 +24,4 @@ python te1.py \
 	--inf_num_iterations 1 \
 	--remove_eos True \
 	--use_lora True \
-	--ckpt_dir "/data/yhao/baseline/CODI/outputs/trained/baseModel"
+	--ckpt_dir "/data/yhao/baseline/CODI/outputs/trained/eucLong"

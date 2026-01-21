@@ -1,7 +1,14 @@
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
+
+# SAVE_DIR=${SAVE_DIR:-/data/yhao/baseline/CODI/outputs/test_llama1b_probe}
+
+SAVE_DIR="${CODI_SAVE_DIR}"
+
 python probe_latent_token.py \
 	--data_name "zen-E/GSM8k-Aug" \
-	--output_dir "$SAVE_DIR" \
-	--model_name_or_path gpt2 \
+	--output_dir "$SAVE_DIR/probe" \
+	--model_name_or_path "/data/yhao/sim-con/modelscope/LLM-Research/Llama-3.2-1B-Instruct" \
 	--seed 11 \
 	--model_max_length 512 \
 	--bf16 \
@@ -10,11 +17,11 @@ python probe_latent_token.py \
 	--greedy True \
 	--num_latent 6 \
 	--use_prj True \
-	--prj_dim 768 \
+	--prj_dim 2048 \
 	--prj_no_ln False \
 	--prj_dropout 0.0 \
 	--inf_latent_iterations 6 \
 	--inf_num_iterations 1 \
 	--remove_eos True \
-	--use_lora True\
-	--ckpt_dir /scratch/prj/inf_multimodal_qa/scratch_tmp/efficient_cot/icae/think_in_the_latent_2025/exp_icot_gpt2+mse+ce+prj768+div+lat6+lr3e-3+noref_nopre_reproduce/gsm8k_llama1b_latent_baseline/gpt2/ep_42/lr_0.003/seed_11/
+	--use_lora True \
+	--ckpt_dir "/data/yhao/baseline/CODI/outputs/trained/eucLong"

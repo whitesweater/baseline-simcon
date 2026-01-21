@@ -1,0 +1,46 @@
+# 评估 Stage 1: LLM-only Training 结果
+# 期望性能 ~39
+
+project: coconut
+save_path: ./ckpts1
+name: gsm_3stage_stage1_llm_only_eval
+
+only_eval: True
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+coconutgpt: False
+
+c_thought: 6
+epochs_per_stage: 1
+max_latent_stage: 1
+pad_latent_to_max: True
+
+save_only_improve: False
+uniform_prob: 0.0
+
+model_id: /data/yhao/sim-con/modelscope/LLM-Research/Llama-3.2-1B-Instruct
+load_model_path: /data/yhao/Bs/coconut/ckpt/gsm-cot/checkpoint_15
+
+wandb: False
+seed: 0
+resume: 0
+bf16: True
+
+# 数据路径
+train_path: /data/yhao/Bs/coconut/data/gsm_train.json
+val_path: /data/yhao/baseline/Coconut/data/gsm-hard_train.json
+
+reset_optimizer: False
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 1
+num_epochs: 1
+lr: !!float "1e-4"
+weight_decay: 0.01
+
+mode: coconut_baseline
+training_method: full
+train_or_eval: eval

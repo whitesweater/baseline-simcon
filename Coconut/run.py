@@ -244,7 +244,7 @@ def main():
     total_train_steps = 0
 
     if not configs.debug and not configs.only_eval and configs.wandb and rank == 0:
-        wandb_run = wandb.init(project=configs.project, name=configs.name)
+        wandb_run = wandb.init(project=configs.project, name=configs.name,model="offline")
         wandb_run.config.update(configs, allow_val_change=True)
         text_table = wandb.Table(columns=["step", "text"])
 
@@ -305,7 +305,7 @@ def main():
 
             train_dataloader = torch.utils.data.DataLoader(
                 dataset_train,
-                num_workers=1,
+                num_workers=16,
                 shuffle=False,
                 pin_memory=True,
                 batch_size=configs.batch_size_training,

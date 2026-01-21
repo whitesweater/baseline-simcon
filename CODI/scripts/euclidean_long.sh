@@ -1,6 +1,5 @@
 #!/bin/bash
-# LLaMA 1B Training with Decoder + Hyperbolic Trajectory Consistency
-# Warning: Hyperbolic space is experimental and may have numerical stability issues
+# LLaMA 1B Training with Decoder + Euclidean Trajectory Consistency
 
 # Load environment config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,8 +10,8 @@ mkdir -p "${SAVE_DIR}"
 
 torchrun --nproc-per-node=2 train.py \
 	--output_dir "${SAVE_DIR}" \
-	--expt_name gsm8k_llama1b_latent_decoder-trajectory-hyperbolic \
-	--logging_dir "${SAVE_DIR}/hyperbolic-logs" \
+	--expt_name gsm8k_llama1b_latent_decoder-trajectory-euclideanLong8 \
+	--logging_dir "${SAVE_DIR}/euclideanLong8-logs" \
 	--logging_steps 10 \
 	--model_name_or_path "${CODI_LLAMA1B_PATH}" \
 	--data_name icot \
@@ -21,10 +20,10 @@ torchrun --nproc-per-node=2 train.py \
 	--per_device_train_batch_size 32 \
 	--gradient_accumulation_steps 2 \
 	--bf16 \
-	--dataloader_num_workers 16 \
+	--dataloader_num_workers 4 \
 	--dataloader_pin_memory True \
 	--dataloader_persistent_workers True \
-	--dataloader_prefetch_factor 4 \
+	--dataloader_prefetch_factor 2 \
 	--num_train_epochs 10 \
 	--learning_rate 8e-4 \
 	--max_grad_norm 2.0 \
@@ -41,7 +40,7 @@ torchrun --nproc-per-node=2 train.py \
 	--lr_scheduler_type cosine \
 	--do_train \
 	--report_to tensorboard \
-	--num_latent 6 \
+	--num_latent 8 \
 	--logging_strategy steps \
 	--use_prj True \
 	--prj_dim 2048 \
@@ -55,8 +54,6 @@ torchrun --nproc-per-node=2 train.py \
 	--max_token_num 200 \
 	--use_decoder True \
 	--use_trajectory_consistency True \
-	--trajectory_space_type hyperbolic \
+	--trajectory_space_type euclidean \
 	--trajectory_radius_threshold 2 \
-	--trajectory_loss_factor 5 \
-	--trajectory_curvature 1 \
-	--ddp_find_unused_parameters False
+	--trajectory_loss_factor 0.1

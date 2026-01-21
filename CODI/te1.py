@@ -170,7 +170,8 @@ def evaluation(model_args, data_args, training_args):
     elif "gsm8k" == data_args.data_name:
         # dataset = load_dataset("gsm8k", "main")
         # test_set = dataset['test']
-        test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_test_clean.json')
+        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_test_clean.json')
+        test_set = load_dataset("zen-E/GSM8k-Aug")["test"]
         # import pdb; pdb.set_trace()
         # print()
     else:
@@ -318,7 +319,7 @@ def evaluation(model_args, data_args, training_args):
             pred_tokens = [[] for _ in range(batch_size)]
             for i in range(gen_kwargs["max_new_tokens"]):
                 seq_len += 1
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 out = model.codi(
                         inputs_embeds=output,
                         output_hidden_states=False,

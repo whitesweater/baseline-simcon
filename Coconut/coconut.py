@@ -15,7 +15,6 @@ MAX_N_LATENT = 8
 
 
 class Coconut(nn.Module):
-
     def __init__(
         self,
         base_causallm,
@@ -82,15 +81,7 @@ class Coconut(nn.Module):
                 hidden_states_offset = 0
 
             else:
-                # extract kv cache to reuse
-                past_key_values = [
-                    (
-                        k[:, :, : next_compute_range[0], :],
-                        v[:, :, : next_compute_range[0], :],
-                    )
-                    for k, v in kv_cache
-                ]
-
+                # reuse kv cache directly (compatible with transformers Cache API)
                 outputs = self.base_causallm(
                     inputs_embeds=inputs_embeds[
                         :, next_compute_range[0] : next_compute_range[1], :
@@ -99,7 +90,7 @@ class Coconut(nn.Module):
                     position_ids=position_ids[
                         :, next_compute_range[0] : next_compute_range[1]
                     ],
-                    past_key_values=past_key_values,
+                    past_key_values=kv_cache,
                     output_hidden_states=True,
                 )
 
@@ -167,17 +158,7 @@ class Coconut(nn.Module):
             ],
             attention_mask=attention_mask[:, : next_compute_range[1]],
             position_ids=position_ids[:, next_compute_range[0] : next_compute_range[1]],
-            past_key_values=(
-                [
-                    (
-                        k[:, :, : next_compute_range[0], :],
-                        v[:, :, : next_compute_range[0], :],
-                    )
-                    for k, v in kv_cache
-                ]
-                if kv_cache
-                else None
-            ),
+            past_key_values=kv_cache if kv_cache else None,
             output_hidden_states=True,
         )
 
@@ -375,15 +356,7 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
                 hidden_states_offset = 0
 
             else:
-                # extract kv cache to reuse
-                past_key_values = [
-                    (
-                        k[:, :, : next_compute_range[0], :],
-                        v[:, :, : next_compute_range[0], :],
-                    )
-                    for k, v in kv_cache
-                ]
-
+                # reuse kv cache directly (compatible with transformers Cache API)
                 outputs = self.base_causallm(
                     inputs_embeds=inputs_embeds[
                         :, next_compute_range[0] : next_compute_range[1], :
@@ -392,7 +365,7 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
                     position_ids=position_ids[
                         :, next_compute_range[0] : next_compute_range[1]
                     ],
-                    past_key_values=past_key_values,
+                    past_key_values=kv_cache,
                     output_hidden_states=True,
                 )
 
@@ -485,17 +458,7 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
             ],
             attention_mask=attention_mask[:, : next_compute_range[1]],
             position_ids=position_ids[:, next_compute_range[0] : next_compute_range[1]],
-            past_key_values=(
-                [
-                    (
-                        k[:, :, : next_compute_range[0], :],
-                        v[:, :, : next_compute_range[0], :],
-                    )
-                    for k, v in kv_cache
-                ]
-                if kv_cache
-                else None
-            ),
+            past_key_values=kv_cache if kv_cache else None,
             output_hidden_states=True,
         )
 

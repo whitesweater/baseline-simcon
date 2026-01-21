@@ -1,20 +1,23 @@
-SAVE_DIR=/mnt/shared-storage-user/weixilin/MLLM/coconut/codi/outputs
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
+
+SAVE_DIR="${CODI_SAVE_DIR}"
 
 mkdir -p "$SAVE_DIR"
 
 # cp scripts/train_28.20_ce_llama1b_dynamic-teacher_factor-exp_lat6.sh "$SAVE_DIR"
 
-python train.py \
+torchrun --nnodes 1 --nproc_per_node 4 train.py \
 	--output_dir "$SAVE_DIR" \
-  	--expt_name gsm8k_llama3b_latent_baseline-decoder-2-9_8 \
-	--logging_dir "$SAVE_DIR/logs"\
+  	--expt_name gsm8k_llama3b_latent_baseline-decoder-2-9_3b \
+	--logging_dir "$SAVE_DIR/3b_logs"\
 	--logging_steps 10 \
-	--model_name_or_path /mnt/shared-storage-user/mllm/shared/mllm_ckpts/models--meta-llama--Llama-3.2-3B-Instruct/snapshots/392a143b624368100f77a3eafaa4a2468ba50a72 \
+	--model_name_or_path "${CODI_LLAMA3B_PATH}" \
 	--data_name icot \
 	--seed 11 \
 	--model_max_length 512 \
-	--per_device_train_batch_size 32 \
-  	--gradient_accumulation_steps 4 \
+	--per_device_train_batch_size 16 \
+  	--gradient_accumulation_steps 1 \
 	--bf16 \
 	--num_train_epochs 8 \
 	--learning_rate 3e-4 \

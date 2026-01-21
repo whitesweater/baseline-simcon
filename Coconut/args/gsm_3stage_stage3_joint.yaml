@@ -1,0 +1,63 @@
+# Stage 3: Joint Training of Coconut and Decoder
+# 在此阶段，LLM 和 decoder 联合训练
+# 完成此阶段后，模型性能约 ~42
+
+project: coconut
+save_path: ./ckpts
+name: gsm_3stage_stage3_joint
+
+only_eval: False
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+# 与前两个阶段保持一致
+# Stage 3 联合训练，使用全 latent 模式
+c_thought: 6
+epochs_per_stage: 1
+max_latent_stage: 1
+pad_latent_to_max: True
+progressive_train: True
+
+save_only_improve: False
+uniform_prob: 0.0
+
+# Model and checkpoint paths
+model_id: ./pretrained/gpt2
+# 从 Stage 2 的 checkpoint 加载
+load_model_path: ./ckpts/gsm_3stage_stage2_decoder_only/checkpoint_3
+
+wandb: True
+seed: 0
+resume: 6              # stage=6 > max_latent_stage=5，确保全 latent 模式
+bf16: True
+
+# 数据路径
+train_path: ./data/gsm_train.json
+val_path: ./data/gsm_test.json
+
+reset_optimizer: True
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 1
+
+# Stage 3: 联合训练（从 epoch 6 开始）
+num_epochs: 15
+lr: !!float "5e-5"
+weight_decay: 0.01
+
+# Stage 3: 使用带 decoder 的模式
+mode: coconutgpt_same_word_embedding
+
+# 关键：联合训练 LLM 和 decoder
+training_method: full
+
+# Explainable 设置
+w_prompt: False
+explain_mode: v1_aug
+
+# 评估设置
+train_or_eval: train

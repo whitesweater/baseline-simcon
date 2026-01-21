@@ -1,0 +1,47 @@
+# 评估 Stage 2: Decoder-only Training 结果
+# 性能应与 Stage 1 相近（因为 LLM 被冻结）
+
+project: coconut
+save_path: ./ckpts
+name: gsm_3stage_stage2_decoder_only_eval
+
+only_eval: True
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+c_thought: 6
+epochs_per_stage: 1
+max_latent_stage: 1
+pad_latent_to_max: True
+
+save_only_improve: False
+uniform_prob: 0.0
+
+model_id: ./pretrained/gpt2
+load_model_path: ./ckpts/gsm_3stage_stage2_decoder_only/checkpoint_3
+
+wandb: False
+seed: 0
+resume: 0
+bf16: True
+
+train_path: ./data/gsm_train.json
+val_path: ./data/gsm_test.json
+
+reset_optimizer: False
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 1
+num_epochs: 1
+lr: !!float "1e-4"
+weight_decay: 0.01
+
+mode: coconutgpt_same_word_embedding
+training_method: full
+w_prompt: False
+explain_mode: v1_aug
+train_or_eval: eval

@@ -1,0 +1,62 @@
+# Stage 1: LLM-only Training
+# 在此阶段，所有定义的隐式 token 从一开始就参与训练，显式推理步骤逐渐被移除
+# 到此阶段结束时，所有显式步骤完全移除，模型性能约 ~39
+
+project: coconut
+save_path: ./ckpts1
+name: gsm_3stage_stage1_llm_only
+
+only_eval: False
+
+coconut: True
+cot: False
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+# 按要求设置
+# SIM-CoT 策略：latent tokens 固定为 6，explicit steps 逐步移除
+c_thought: 6
+epochs_per_stage: 1
+max_latent_stage: 1
+pad_latent_to_max: True
+progressive_train: True      # 关键！固定 latent 数量，只逐步移除 explicit
+
+save_only_improve: False
+uniform_prob: 0.0
+
+# Model and checkpoint paths
+model_id: /data/yhao/sim-con/modelscope/LLM-Research/Llama-3.2-1B-Instruct
+load_model_path: /data/yhao/Bs/coconut/ckpt/gsm-cot/checkpoint_15
+
+wandb: False
+seed: 0
+resume: 1                    # 从 stage 1 开始，逐步移除 explicit
+bf16: True
+
+# 数据路径
+train_path: /data/yhao/Bs/coconut/data/gsm_train.json
+val_path: /data/yhao/Bs/coconut/data/gsm_test.json
+
+reset_optimizer: True
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 1
+
+# Stage 1: epochs_per_stage=1, max_latent_stage=5
+# Epoch 1: 6 latent + Step2-5 (跳过1步)
+# Epoch 2: 6 latent + Step3-5 (跳过2步)
+# ...
+# Epoch 5+: 6 latent + 无显式步骤
+num_epochs: 15
+lr: !!float "1e-4"
+weight_decay: 0.01
+
+# Stage 1: 使用 coconut_baseline 模式（没有 decoder）
+mode: coconut_baseline
+
+# 只训练 LLM，不使用 decoder
+training_method: full
+
+# 评估设置
+# train_or_eval: train

@@ -229,3 +229,6 @@ local_models/
 SemCoT/results/
 CODI/resultsV1/
 
+Coconut/ckpts1/
+CODI/results_usefl/
+CODI/results_usefl/
