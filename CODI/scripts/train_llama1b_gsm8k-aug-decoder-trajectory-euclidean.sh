@@ -16,7 +16,7 @@ python train.py \
 	--seed 11 \
 	--model_max_length 512 \
 	--per_device_train_batch_size 32 \
-  	--gradient_accumulation_steps 4 \
+  	--gradient_accumulation_steps 1 \
 	--bf16 \
 	--num_train_epochs 10 \
 	--learning_rate 8e-4 \
@@ -43,7 +43,7 @@ python train.py \
 	--distill_loss_factor 20 \
 	--print_ref_model_stats True \
 	--max_token_num 200 \
-	--use_decoder True \
+	--use_decoder False \
 	--use_trajectory_consistency True \
 	--trajectory_space_type euclidean \
 	--trajectory_radius_threshold 2.0 \
