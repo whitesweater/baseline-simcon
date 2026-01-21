@@ -210,3 +210,15 @@ CODI/results/
 baidu/
 .vscode/
 CODI/cache/
+baid/
+Coconut/coco.err
+Coconut/ckpts1/
+Coconut/data/gsm-hard_train.json
+Coconut/data/gsm8k_test.json
+Coconut/data/multi-arith_test.json
+Coconut/data/svamp_all.json
+CODI/eucLong.err
+CODI/hy.err
+CODI/ll.err
+CODI/results1/
+CODI/results_usefl/
