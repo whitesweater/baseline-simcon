@@ -4,11 +4,11 @@
 # Load environment config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
-
+source /data/yhao/baseline/.venv/bin/activate
 SAVE_DIR="${CODI_SAVE_DIR}"
 mkdir -p "${SAVE_DIR}"
 
-python train.py \
+torchrun --nnodes 1 --nproc_per_node 4 train.py \
 	--output_dir "${SAVE_DIR}" \
 	--expt_name gsm8k_llama1b_latent_decoder-trajectory-euclidean \
 	--logging_dir "${SAVE_DIR}/euclidean-logs" \
@@ -24,16 +24,15 @@ python train.py \
 	--dataloader_pin_memory True \
 	--dataloader_persistent_workers True \
 	--dataloader_prefetch_factor 2 \
-	--num_train_epochs 10 \
+	--num_train_epochs 12 \
 	--learning_rate 8e-4 \
 	--max_grad_norm 2.0 \
 	--use_lora True \
 	--lora_r 128 \
 	--lora_alpha 32 \
 	--lora_init \
-	--save_strategy steps \
-	--save_steps 100 \
-	--save_total_limit 2 \
+	--save_strategy epoch \
+	--save_total_limit 20 \
 	--save_safetensors False \
 	--weight_decay 0.1 \
 	--warmup_ratio 0.03 \
@@ -56,4 +55,4 @@ python train.py \
 	--use_trajectory_consistency True \
 	--trajectory_space_type euclidean \
 	--trajectory_radius_threshold 2 \
-	--trajectory_loss_factor 0.1
+	--trajectory_loss_factor 0.2

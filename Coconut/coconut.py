@@ -311,7 +311,7 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
 
     def forward(self, input_ids, attention_mask, labels, position_ids, **kwargs):
         logits = []
-        loss = 0.0
+        loss = torch.tensor(0.0, device=input_ids.device, requires_grad=True)
         trajectory_loss = torch.tensor(0.0, device=input_ids.device)
         
         # Collect latent embeddings for trajectory consistency loss
@@ -786,9 +786,9 @@ class CoconutGPT_Same_Word_Embedding(nn.Module):
                         loss_explain_all += loss_explain
                         
         if 'explainable_ids_list' in kwargs:
-            if loss is None:
-                loss = 0.0
-            loss += 1.0 * loss_explain_all / c_thought_num
+            if loss is None or (isinstance(loss, float) and loss == 0.0):
+                loss = torch.tensor(0.0, device=input_ids.device, requires_grad=True)
+            loss = loss + 1.0 * loss_explain_all / c_thought_num
 
         # Add trajectory consistency loss to total loss
         if self.use_trajectory_consistency and trajectory_loss.item() > 0:

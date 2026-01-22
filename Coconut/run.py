@@ -244,7 +244,7 @@ def main():
     total_train_steps = 0
 
     if not configs.debug and not configs.only_eval and configs.wandb and rank == 0:
-        wandb_run = wandb.init(project=configs.project, name=configs.name,model="offline")
+        wandb_run = wandb.init(project=configs.project, name=configs.name,mode="offline")
         wandb_run.config.update(configs, allow_val_change=True)
         text_table = wandb.Table(columns=["step", "text"])
 
@@ -291,17 +291,35 @@ def main():
         )
 
         if not configs.only_eval:
-
-            dataset_train = get_cot_latent_dataset(
-                scheduled_stage,
-                base_dataset_train,
-                configs,
-                start_id,
-                latent_id,
-                end_id,
-                no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
-                shuffle=True,
-            )
+            # 根据模式选择数据集和 collator
+            use_explainable = configs.mode == 'coconutgpt_same_word_embedding'
+            
+            if use_explainable:
+                # 使用带 explainable 的数据集（用于 decoder 训练）
+                train_collator = MyExplainableCollator(tokenizer, latent_id=latent_id, label_pad_token_id=-100)
+                dataset_train = get_cot_with_explainable_latent_dataset(
+                    scheduled_stage,
+                    base_dataset_train,
+                    configs,
+                    start_id,
+                    latent_id,
+                    end_id,
+                    no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
+                    shuffle=True,
+                )
+            else:
+                # 使用普通数据集（coconut_baseline 模式）
+                train_collator = collator
+                dataset_train = get_cot_latent_dataset(
+                    scheduled_stage,
+                    base_dataset_train,
+                    configs,
+                    start_id,
+                    latent_id,
+                    end_id,
+                    no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
+                    shuffle=True,
+                )
 
             train_dataloader = torch.utils.data.DataLoader(
                 dataset_train,
@@ -309,23 +327,35 @@ def main():
                 shuffle=False,
                 pin_memory=True,
                 batch_size=configs.batch_size_training,
-                collate_fn=collator,
+                collate_fn=train_collator,
                 sampler=DistributedSampler(dataset_train, shuffle=True),
             )
 
             # the sampler is deterministic even if shuffle is set to True
             # so we have shuffled the dataset when it's constructed (at every epoch).
 
-            dataset_loss_val = get_cot_latent_dataset(
-                scheduled_stage,
-                base_dataset_valid,
-                configs,
-                start_id,
-                latent_id,
-                end_id,
-                no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
-                shuffle=False
-            )
+            if use_explainable:
+                dataset_loss_val = get_cot_with_explainable_latent_dataset(
+                    scheduled_stage,
+                    base_dataset_valid,
+                    configs,
+                    start_id,
+                    latent_id,
+                    end_id,
+                    no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
+                    shuffle=False
+                )
+            else:
+                dataset_loss_val = get_cot_latent_dataset(
+                    scheduled_stage,
+                    base_dataset_valid,
+                    configs,
+                    start_id,
+                    latent_id,
+                    end_id,
+                    no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
+                    shuffle=False
+                )
 
             valid_loss_dataloader = torch.utils.data.DataLoader(
                 dataset_loss_val,
@@ -333,7 +363,7 @@ def main():
                 shuffle=False,
                 pin_memory=True,
                 batch_size=configs.batch_size_training,
-                collate_fn=collator,
+                collate_fn=train_collator,
                 sampler=DistributedSampler(dataset_loss_val, shuffle=False),
             )
 
