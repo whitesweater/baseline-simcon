@@ -8,10 +8,10 @@ source /data/yhao/baseline/.venv/bin/activate
 SAVE_DIR="${CODI_SAVE_DIR}"
 mkdir -p "${SAVE_DIR}"
 
-torchrun --nnodes 1 --master_port 22560 --nproc_per_node 4 train.py \
+torchrun --nnodes 1 --master_port 22520 --nproc_per_node 4 train.py \
 	--output_dir "${SAVE_DIR}" \
-	--expt_name decoder-trajectory-euclidean-005 \
-	--logging_dir "${SAVE_DIR}/logs/decoder-trajectory-euclidean-005-logs" \
+	--expt_name decoder-trajectory-euclidean-001 \
+	--logging_dir "${SAVE_DIR}/logs/decoder-trajectory-euclidean-001-logs" \
 	--logging_steps 10 \
 	--model_name_or_path "${CODI_LLAMA1B_PATH}" \
 	--data_name icot \
@@ -55,4 +55,4 @@ torchrun --nnodes 1 --master_port 22560 --nproc_per_node 4 train.py \
 	--use_trajectory_consistency True \
 	--trajectory_space_type euclidean \
 	--trajectory_radius_threshold 2 \
-	--trajectory_loss_factor 0.05
+	--trajectory_loss_factor 0.01

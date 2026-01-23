@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-NUM_GPUS=${1:-8}  # Default to 8 GPUs
+NUM_GPUS=${1:-2}  # Default to 8 GPUs
 CONFIG_FILE="args/gsm_coconut_trajectory_eval.yaml"
 
 echo "======================================"

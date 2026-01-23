@@ -24,8 +24,8 @@ source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found"; ex
 # =============================================================================
 # 默认配置
 # =============================================================================
-TRAINED_DIR="${CODI_SAVE_DIR}/trained"
-RESULTS_DIR="${CODI_RESULT_DIR}"
+TRAINED_DIR="${CODI_SAVE_DIR}/codi-base/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11"
+RESULTS_DIR="${CODI_RESULT_DIR}/codi-base"
 DATASETS="gsm8k svamp gsm-hard multi-arith"  # 默认数据集
 NUM_RUNS=1
 MODELS=""  # 空表示测试所有

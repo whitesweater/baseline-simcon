@@ -237,3 +237,6 @@ CODI/results_codi_euc_diffCheckpoing/
 Coconut/wandb/
 Coconut/ckpts/
 Coconut/wandb/latest-run
+CODI/results*
+CODI/results*/**
+nohup*
