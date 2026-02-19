@@ -23,6 +23,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Dict, Optional, List
 from datetime import datetime
+import time
 
 import torch
 import transformers
@@ -73,17 +74,19 @@ DATASET_CONFIGS = {
         "answer_type": "number",
     },
     "multi-arith": {
-        "hf_id": "ChilleD/MultiArith",
+        "local_path": "./SemCoT/datasets/multiarith/eval_42.json",  # 优先使用本地数据
+        "hf_id": "ChilleD/MultiArith",  # 备用 HF 数据
         "split": "test",
-        "question_field": "question",
-        "answer_field": "final_ans",
+        "question_field": "query",
+        "answer_field": "answer",
         "answer_type": "number",
     },
     "svamp": {
-        "hf_id": "ChilleD/SVAMP",
+        "local_path": "./SemCoT/datasets/svamp/eval_42.json",  # 优先使用本地数据
+        "hf_id": "ChilleD/SVAMP",  # 备用 HF 数据
         "split": "all",  # 特殊处理：合并 train 和 test
-        "question_field": "question_concat",
-        "answer_field": "Answer",
+        "question_field": "query",
+        "answer_field": "answer",
         "answer_type": "number",
     },
     "commonsense": {
@@ -92,6 +95,45 @@ DATASET_CONFIGS = {
         "question_field": "question",
         "answer_field": "answer",
         "answer_type": "choice",
+    },
+    # ========== 新增数据集 ==========
+    "strategyqa": {
+        "hf_id": "ChilleD/StrategyQA",
+        "split": "test",
+        "question_field": "question",
+        "answer_field": "answer",
+        "answer_type": "boolean",  # True/False
+    },
+    "aqua": {
+        "hf_id": "deepmind/aqua_rat",
+        "split": "test",
+        "question_field": "question",  # 需要特殊处理，拼接 options
+        "answer_field": "correct",     # A/B/C/D/E
+        "answer_type": "choice",
+        "has_options": True,           # 标记需要拼接选项
+    },
+    "asdiv": {
+        "hf_id": "EleutherAI/asdiv",
+        "split": "validation",
+        "question_field": "question",  # 需要特殊处理，拼接 body
+        "answer_field": "answer",      # 格式如 "9 (apples)"，需要提取数字
+        "answer_type": "number",
+        "has_body": True,              # 标记需要拼接 body
+    },
+    "du": {
+        "hf_id": "lukaemon/bbh",
+        "hf_config": "date_understanding",  # 子集名称
+        "split": "test",
+        "question_field": "input",     # 问题已包含选项
+        "answer_field": "target",      # 格式如 "(B)"
+        "answer_type": "choice",
+        "extract_choice_from_paren": True,  # 从 "(X)" 提取 X
+    },
+    "coin_flip": {
+        "local_path": "./SemCoT/datasets/coin_flip/eval_42.json",  # 本地 JSON 文件
+        "question_field": "query",
+        "answer_field": "answer",
+        "answer_type": "boolean",  # yes/no
     },
 }
 
@@ -179,9 +221,74 @@ def load_dataset_by_name(data_name: str):
         raise ValueError(f"未知数据集: {data_name}。支持: {list(DATASET_CONFIGS.keys())}")
     
     config = DATASET_CONFIGS[data_name]
-    print(f"[Data] 加载数据集: {data_name} ({config['hf_id']})")
     
-    dataset = load_dataset(config["hf_id"])
+    # 优先支持本地 JSON 文件
+    if "local_path" in config:
+        local_path = config["local_path"]
+        if os.path.exists(local_path):
+            print(f"[Data] 加载本地数据集: {data_name} ({local_path})")
+            with open(local_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # 将 list 转换为 Dataset 格式
+            from datasets import Dataset
+            test_set = Dataset.from_list(data)
+            return test_set, config
+        else:
+            # 本地文件不存在，回退到 HuggingFace
+            print(f"[Data] 本地文件不存在: {local_path}，尝试从 HuggingFace 加载")
+            if "hf_id" not in config:
+                raise FileNotFoundError(f"本地数据集文件不存在: {local_path}")
+    
+    hf_config = config.get("hf_config", None)  # 子集名称（如 BBH 的 date_understanding）
+    
+    # 优先尝试离线模式加载本地缓存，避免网络超时
+    def try_load_dataset(hf_id, hf_config=None):
+        """先尝试离线加载缓存，失败后再尝试在线加载"""
+        try:
+            # 首先尝试离线模式（直接使用本地缓存）
+            if hf_config:
+                return load_dataset(hf_id, hf_config, trust_remote_code=True)
+            else:
+                return load_dataset(hf_id, trust_remote_code=True)
+        except Exception as e:
+            print(f"[Data] 在线加载失败: {e}")
+            print(f"[Data] 尝试强制使用本地缓存...")
+            # 设置离线模式环境变量
+            import os
+            old_offline = os.environ.get("HF_DATASETS_OFFLINE", None)
+            os.environ["HF_DATASETS_OFFLINE"] = "1"
+            try:
+                if hf_config:
+                    return load_dataset(hf_id, hf_config, trust_remote_code=True)
+                else:
+                    return load_dataset(hf_id, trust_remote_code=True)
+            finally:
+                # 恢复环境变量
+                if old_offline is None:
+                    os.environ.pop("HF_DATASETS_OFFLINE", None)
+                else:
+                    os.environ["HF_DATASETS_OFFLINE"] = old_offline
+    
+    # 先尝试离线模式加载（跳过网络检查）
+    import os
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+    try:
+        if hf_config:
+            print(f"[Data] 加载数据集 (离线优先): {data_name} ({config['hf_id']}/{hf_config})")
+            dataset = load_dataset(config["hf_id"], hf_config, trust_remote_code=True)
+        else:
+            print(f"[Data] 加载数据集 (离线优先): {data_name} ({config['hf_id']})")
+            dataset = load_dataset(config["hf_id"], trust_remote_code=True)
+        print(f"[Data] ✓ 从本地缓存加载成功")
+    except Exception as e:
+        print(f"[Data] 本地缓存不存在，尝试在线加载: {e}")
+        os.environ.pop("HF_DATASETS_OFFLINE", None)
+        if hf_config:
+            dataset = load_dataset(config["hf_id"], hf_config, trust_remote_code=True)
+        else:
+            dataset = load_dataset(config["hf_id"], trust_remote_code=True)
+    finally:
+        os.environ.pop("HF_DATASETS_OFFLINE", None)
     
     if config["split"] == "all":
         # 特殊处理：合并所有 split
@@ -197,25 +304,63 @@ def prepare_questions_and_answers(test_set, config):
     question_field = config["question_field"]
     answer_field = config["answer_field"]
     answer_type = config["answer_type"]
+    has_options = config.get("has_options", False)  # AQuA 需要拼接选项
+    has_body = config.get("has_body", False)        # ASDiv 需要拼接 body
+    extract_choice_from_paren = config.get("extract_choice_from_paren", False)  # DU: "(B)" -> "B"
     
-    questions = [ex[question_field].strip().replace('  ', ' ') for ex in test_set]
+    questions = []
     answers = []
     
     for ex in test_set:
+        # 构建问题
+        q = ex[question_field].strip().replace('  ', ' ')
+        
+        # AQuA: 拼接选项到问题中
+        if has_options and "options" in ex:
+            options_str = "\n".join(ex["options"])
+            q = f"{q}\n\nOptions:\n{options_str}"
+        
+        # ASDiv: 拼接 body 到问题中
+        if has_body and "body" in ex:
+            body = ex["body"].strip()
+            q = f"{body} {q}"
+        
+        questions.append(q)
+        
+        # 处理答案
         ans = ex[answer_field]
         
-        # 处理布尔值
+        # DU: 从 "(B)" 提取 "B"
+        if extract_choice_from_paren:
+            match = re.match(r'\(([A-F])\)', str(ans).strip())
+            if match:
+                answers.append(match.group(1))
+                continue
+        
+        # 处理布尔值 (StrategyQA, coin_flip)
         if isinstance(ans, bool):
             answers.append(ans)
             continue
         if ans in ["True", "False"]:
             answers.append(ans == "True")
             continue
-        
-        # 处理选择题
-        if answer_type == "choice" and ans in "ABCDE":
-            answers.append(ans)
+        # 处理 yes/no 字符串 (coin_flip)
+        if answer_type == "boolean" or str(ans).lower() in ["yes", "no"]:
+            answers.append(str(ans).lower() == "yes")
             continue
+        
+        # 处理选择题 (AQuA, CommonsenseQA)
+        if answer_type == "choice" and str(ans).strip() in "ABCDEF":
+            answers.append(str(ans).strip())
+            continue
+        
+        # 处理 ASDiv 格式: "9 (apples)" -> 9.0
+        if has_body:
+            # 提取第一个数字
+            match = re.match(r'^(-?\d+\.?\d*)', str(ans).replace(',', ''))
+            if match:
+                answers.append(float(match.group(1)))
+                continue
         
         # 处理数字答案
         if "####" in str(ans):
@@ -233,30 +378,57 @@ def prepare_questions_and_answers(test_set, config):
 # ============================================================
 # 答案提取
 # ============================================================
-def extract_answer(sentence: str, answer_type: str):
-    """从生成文本中提取答案"""
-    sentence = sentence.replace(',', '')
+def extract_answer(sentence: str, answer_type: str, question: str = None):
+    """从生成文本中提取答案
+    
+    Args:
+        sentence: 模型生成的文本
+        answer_type: 答案类型 ("number", "choice", "boolean")
+        question: 原始问题（用于选择题时从具体答案匹配回选项字母）
+    """
+    sentence_clean = sentence.replace(',', '')
     
     if answer_type == "choice":
-        # 选择题：提取 A-E
-        pred = sentence.split("The answer is:")[-1].strip()
-        if pred and pred[0] in "ABCDE":
+        # 选择题：只提取 A-F 选项字母，如果结果不是选项字母则返回 inf
+        pred = sentence_clean.split("The answer is:")[-1].strip()
+        if pred and pred[0] in "ABCDEF":
             return pred[0]
-        for char in "ABCDE":
-            if char in sentence:
-                return char
+        # 尝试从 $\boxed{X}$ 格式提取
+        boxed_match = re.search(r'\\boxed\{([A-F])\}', sentence)
+        if boxed_match:
+            return boxed_match.group(1)
+        # 尝试找最后出现的独立选项字母（只匹配大写 A-F）
+        choice_match = re.search(r'\b([A-F])\b', sentence_clean)
+        if choice_match:
+            return choice_match.group(1)
+        
+        # 未找到有效选项字母，返回 inf
         return float('inf')
     
     elif answer_type == "boolean":
-        if "True" in sentence:
+        # StrategyQA: 答案是 Yes/No 或 True/False
+        sentence_lower = sentence.lower()
+        # 查找最后出现的 yes/no
+        last_yes = sentence_lower.rfind('yes')
+        last_no = sentence_lower.rfind('no')
+        
+        if last_yes == -1 and last_no == -1:
+            # 回退到 True/False
+            if "True" in sentence:
+                return True
+            elif "False" in sentence:
+                return False
+            return float('inf')
+        
+        # 返回最后出现的那个
+        if last_yes > last_no:
             return True
-        elif "False" in sentence:
+        else:
             return False
-        return float('inf')
     
     else:
         # 数字答案
-        pred = re.findall(r'-?\d+\.?\d*', sentence)
+        pred = re.findall(r'-?\d+\.?\d*', sentence_clean)
         if not pred:
             return float('inf')
         return float(pred[-1])
@@ -266,6 +438,39 @@ def compute_accuracy(gold: list, pred: list):
     """计算准确率"""
     acc = sum(1 for p, g in zip(pred, gold) if p == g)
     return acc / len(gold) if gold else 0.0
+
+
+def compute_batch_radius_stats(latents_TBD: torch.Tensor, training_args) -> dict:
+    """计算单个 batch 的 radius 统计信息
+    
+    Args:
+        latents_TBD: [T, B, D] 形状的张量，T=迭代次数, B=batch_size, D=embedding_dim
+        training_args: 训练参数
+    
+    Returns:
+        radius 统计字典
+    """
+    if latents_TBD is None or latents_TBD.numel() == 0:
+        return None
+    
+    try:
+        tc = TrajectoryConsistencyLoss(
+            space_type=getattr(training_args, 'trajectory_space_type', 'euclidean'),
+            radius_threshold=getattr(training_args, 'trajectory_radius_threshold', 2.0),
+            curvature=getattr(training_args, 'trajectory_curvature', 1.0),
+        )
+        stats = tc.compute_stats(latents_TBD)
+        return {
+            "radius_max": float(stats['radius_max'].item()),
+            "radius_mean": float(stats['radius_mean'].item()),
+            "violation_rate": float(stats['violation_rate'].item()),
+            "threshold": float(stats['radius_threshold'].item()),
+            "batch_size": int(latents_TBD.size(1)),
+        }
+    except Exception as e:
+        print(f"[Radius] 统计失败: {e}")
+        return None
+
 
 
 # ============================================================
@@ -322,7 +527,11 @@ class ResultsManager:
     def save_run_results(self, model_name: str, dataset: str, run_id: int,
                          predictions: list, accuracy: float, 
                          questions: list, answers: list, 
-                         trajectory_stats: dict = None):
+                         trajectory_stats: dict = None,
+                         latents: list = None,
+                         elapsed_time: float = None,
+                         token_stats: dict = None,
+                         raw_outputs: list = None):  # DEBUG: 添加原始输出参数
         """保存单次运行结果"""
         run_dir = self.get_run_dir(model_name, dataset, run_id)
         
@@ -332,7 +541,17 @@ class ResultsManager:
             "ground_truth": [str(a) for a in answers],
         }, os.path.join(run_dir, "predictions.json"))
         
+        # DEBUG: 保存模型原始输出（用于调试 extract_answer）
+        if raw_outputs:
+            save_json({
+                "raw_outputs": raw_outputs,
+                "predictions": predictions,
+                "ground_truth": [str(a) for a in answers],
+            }, os.path.join(run_dir, "raw_outputs.json"))
+            print(f"[DEBUG] 保存原始输出: {os.path.join(run_dir, 'raw_outputs.json')}")
+        
         # 保存指标
+        ms_per_sample = (elapsed_time * 1000 / len(predictions)) if len(predictions) > 0 else 0
         metrics = {
             "model": model_name,
             "dataset": dataset,
@@ -340,6 +559,9 @@ class ResultsManager:
             "accuracy": accuracy,
             "total_samples": len(predictions),
             "correct": int(accuracy * len(predictions)),
+            "elapsed_time_sec": elapsed_time if elapsed_time else 0,
+            "ms_per_sample": round(ms_per_sample, 1),
+            "avg_output_tokens": token_stats.get("avg_output_tokens", 0) if token_stats else 0,
             "timestamp": self.timestamp,
         }
         save_json(metrics, os.path.join(run_dir, "metrics.json"))
@@ -347,6 +569,19 @@ class ResultsManager:
         # 保存轨迹统计
         if trajectory_stats:
             save_json(trajectory_stats, os.path.join(run_dir, "trajectory_stats.json"))
+        
+        # 保存 latent embeddings（每道题的中间 latent）
+        if latents:
+            latents_path = os.path.join(run_dir, "latents.json")
+            latents_data = {
+                "description": "Latent embeddings for each question across iterations",
+                "num_samples": len(latents),
+                "num_iterations": len(latents[0]) if latents and latents[0] else 0,
+                "embedding_dim": len(latents[0][0]) if latents and latents[0] and latents[0][0] else 0,
+                "latents": latents,  # [num_samples, num_iterations, embedding_dim]
+            }
+            save_json(latents_data, latents_path)
+            print(f"[Results] 保存 latents: {latents_path} ({len(latents)} 样本, 每样本 {len(latents[0]) if latents else 0} 步)")
         
         # 添加到总结果
         self.all_results.append(metrics)
@@ -436,9 +671,82 @@ class ResultsManager:
             print("模型 × 数据集 准确率矩阵")
             print("="*80)
             print(pivot.to_string(index=False))
+            print("="*80)
+            
+            # 汇总统计
+            total_samples = int(df['total_samples'].sum())
+            total_time = df['elapsed_time_sec'].sum()
+            avg_ms = (total_time * 1000 / total_samples) if total_samples > 0 else 0
+            print(f"\n总样本数: {total_samples}条 | 总耗时: {total_time:.1f}s ({total_time/60:.1f}min) | 平均: {avg_ms:.1f}ms/条")
             print("="*80 + "\n")
+            
+            # 生成 Token 和耗时汇总
+            self._generate_token_time_summary_from_df(df)
+            
         except Exception as e:
             print(f"[Results] 生成对比矩阵失败: {e}")
+    
+    def _generate_token_time_summary_from_df(self, df):
+        """生成每个模型在每个数据集上的平均回答 Token 和耗时"""
+        import pandas as pd
+        
+        try:
+            if 'avg_output_tokens' not in df.columns:
+                print("[Results] 没有 avg_output_tokens 数据可汇总")
+                return
+            
+            # 生成 模型×数据集 的平均回答 Token 矩阵
+            pivot_tokens = df.pivot_table(
+                values='avg_output_tokens',
+                index='model',
+                columns='dataset',
+                aggfunc='mean'
+            ).round(1)
+            
+            pivot_tokens = pivot_tokens.reset_index()
+            
+            # 添加总平均列
+            token_cols = [c for c in pivot_tokens.columns if c != 'model']
+            if token_cols:
+                pivot_tokens['avg_all'] = pivot_tokens[token_cols].mean(axis=1).round(1)
+            
+            # 保存到文件
+            token_summary_path = os.path.join(self.summary_dir, "avg_output_tokens_matrix.csv")
+            pivot_tokens.to_csv(token_summary_path, index=False, float_format='%.1f')
+            print(f"[Results] 平均回答Token矩阵: {token_summary_path}")
+            
+            # 打印矩阵
+            print("\n" + "="*80)
+            print("模型 × 数据集 平均回答Token数")
+            print("="*80)
+            print(pivot_tokens.to_string(index=False))
+            print("="*80 + "\n")
+            
+            # 同样生成耗时矩阵
+            if 'elapsed_time_sec' in df.columns:
+                pivot_time = df.pivot_table(
+                    values='elapsed_time_sec',
+                    index='model',
+                    columns='dataset',
+                    aggfunc='mean'
+                ).round(1)
+                pivot_time = pivot_time.reset_index()
+                time_cols = [c for c in pivot_time.columns if c != 'model']
+                if time_cols:
+                    pivot_time['total_time'] = pivot_time[time_cols].sum(axis=1).round(1)
+                
+                time_summary_path = os.path.join(self.summary_dir, "elapsed_time_matrix.csv")
+                pivot_time.to_csv(time_summary_path, index=False, float_format='%.1f')
+                print(f"[Results] 耗时矩阵: {time_summary_path}")
+                
+                print("\n" + "="*80)
+                print("模型 × 数据集 耗时(秒)")
+                print("="*80)
+                print(pivot_time.to_string(index=False))
+                print("="*80 + "\n")
+            
+        except Exception as e:
+            print(f"[Results] 生成 Token/耗时汇总失败: {e}")
     
     def _generate_per_dataset_summary_from_df(self, df):
         """从 DataFrame 为每个数据集生成模型对比"""
@@ -646,11 +954,13 @@ class MultiDatasetEvaluator:
         
         print(f"[Model] 模型加载完成，已移至 CUDA (bfloat16)")
     
-    def evaluate_dataset(self, data_name: str, batch_size: int = 128) -> dict:
+    def evaluate_dataset(self, data_name: str, batch_size: int = 128, save_latents: bool = True) -> dict:
         """在单个数据集上评估"""
         print(f"\n{'─'*80}")
         print(f"[Eval] 数据集: {data_name}")
         print(f"{'─'*80}")
+        
+        start_time = time.time()
         
         # 加载数据集
         test_set, config = load_dataset_by_name(data_name)
@@ -661,13 +971,23 @@ class MultiDatasetEvaluator:
         # 准备 batch
         question_data = self._prepare_batches(questions, batch_size)
         
-        # 推理
-        predictions = self._run_inference(question_data, config["answer_type"])
+        # 推理（同时收集 latent embeddings 和 token 统计）
+        predictions, all_latents, token_stats, raw_outputs, trajectory_stats = self._run_inference(
+            question_data, config["answer_type"], 
+            save_latents=save_latents, 
+            questions=questions,  # 传递原始问题用于选择题答案匹配
+            batch_size=batch_size
+        )
         
         # 计算准确率
         accuracy = compute_accuracy(answers, predictions)
         
+        elapsed_time = time.time() - start_time
+        ms_per_sample = (elapsed_time * 1000 / len(answers)) if len(answers) > 0 else 0
+        
         print(f"[Eval] 准确率: {100*accuracy:.2f}%")
+        print(f"[Eval] 耗时: {elapsed_time:.2f}s ({ms_per_sample:.1f}ms/样本)")
+        print(f"[Eval] 平均回答 Token: {token_stats['avg_output_tokens']:.1f}")
         
         return {
             "predictions": predictions,
@@ -675,6 +995,11 @@ class MultiDatasetEvaluator:
             "questions": questions,
             "accuracy": accuracy,
             "config": config,
+            "latents": all_latents,  # 每道题的 latent embeddings
+            "elapsed_time": elapsed_time,
+            "token_stats": token_stats,
+            "raw_outputs": raw_outputs,  # DEBUG: 模型原始输出
+            "trajectory_stats": trajectory_stats,  # radius/轨迹统计信息
         }
     
     def _prepare_batches(self, questions: list, batch_size: int) -> list:
@@ -705,8 +1030,19 @@ class MultiDatasetEvaluator:
         
         return batches
     
-    def _run_inference(self, question_data: list, answer_type: str) -> list:
-        """运行推理"""
+    def _run_inference(self, question_data: list, answer_type: str, save_latents: bool = True, 
+                       questions: list = None, batch_size: int = 1) -> tuple:
+        """运行推理，同时收集每道题的 latent embeddings 和 token 统计
+        
+        Args:
+            question_data: tokenized batch 数据
+            answer_type: 答案类型
+            save_latents: 是否保存完整的 latent embeddings
+            questions: 原始问题列表（用于选择题答案匹配）
+            batch_size: batch 大小
+        
+        Note: trajectory_stats 在第一个 batch 推理过程中直接计算（利用 GPU 张量）
+        """
         gen_kwargs = {
             "max_new_tokens": 256,
             "temperature": 0.1,
@@ -716,12 +1052,19 @@ class MultiDatasetEvaluator:
         }
         
         all_predictions = []
+        all_latents = [] if save_latents else None  # 仅在需要时收集
+        all_output_tokens = []
+        all_raw_outputs = []
+        sample_idx = 0
+        
+        # 累积所有 batch 的 radius 统计
+        all_radius_stats = []
         
         for step, batch in enumerate(question_data):
             if step % 10 == 0:
                 print(f"[Eval] Batch {step+1}/{len(question_data)}")
             
-            batch_size = batch["input_ids"].size(0)
+            cur_batch_size = batch["input_ids"].size(0)
             
             with torch.no_grad():
                 # 编码问题
@@ -737,6 +1080,13 @@ class MultiDatasetEvaluator:
                 if self.training_args.use_prj:
                     latent_embd = self.model.prj(latent_embd)
                 
+                # 收集 latent embeddings 用于轨迹统计（仅在第一个 batch 收集，直接使用 GPU 张量）
+                latent_embeddings_for_stats = [latent_embd.squeeze(1)]  # [B, D]
+                
+                # 如需保存完整 latents
+                if save_latents:
+                    batch_latents = [[latent_embd[b, 0, :].cpu().tolist()] for b in range(cur_batch_size)]
+                
                 # Latent iterations
                 for _ in range(self.training_args.inf_latent_iterations):
                     outputs = self.model.codi(
@@ -750,21 +1100,36 @@ class MultiDatasetEvaluator:
                     
                     if self.training_args.use_prj:
                         latent_embd = self.model.prj(latent_embd)
+                    
+                    # 收集 latent 用于统计
+                    latent_embeddings_for_stats.append(latent_embd.squeeze(1))  # [B, D]
+                    
+                    if save_latents:
+                        for b in range(cur_batch_size):
+                            batch_latents[b].append(latent_embd[b, 0, :].cpu().tolist())
+                
+                # 每个 batch 都计算 radius 统计
+                if latent_embeddings_for_stats:
+                    latents_TBD = torch.stack(latent_embeddings_for_stats, dim=0)  # [T, B, D]
+                    batch_radius = compute_batch_radius_stats(latents_TBD, self.training_args)
+                    if batch_radius:
+                        all_radius_stats.append(batch_radius)
+                        print(f"[Radius] batch={step} max={batch_radius['radius_max']:.4f} mean={batch_radius['radius_mean']:.4f} viol={batch_radius['violation_rate']:.4f}")
                 
                 # 添加 EOT token
                 if self.training_args.remove_eos:
                     eot_emb = self.model.get_embd(self.model.codi, self.model.model_name)(
                         torch.tensor([self.model.eot_id], dtype=torch.long, device='cuda')
-                    ).unsqueeze(0).expand(batch_size, -1, -1)
+                    ).unsqueeze(0).expand(cur_batch_size, -1, -1)
                 else:
                     eot_emb = self.model.get_embd(self.model.codi, self.model.model_name)(
                         torch.tensor([self.model.eot_id, self.tokenizer.eos_token_id], dtype=torch.long, device='cuda')
-                    ).unsqueeze(0).expand(batch_size, -1, -1)
+                    ).unsqueeze(0).expand(cur_batch_size, -1, -1)
                 
                 # 生成
                 output = eot_emb
-                finished = torch.zeros(batch_size, dtype=torch.bool, device="cuda")
-                pred_tokens = [[] for _ in range(batch_size)]
+                finished = torch.zeros(cur_batch_size, dtype=torch.bool, device="cuda")
+                pred_tokens = [[] for _ in range(cur_batch_size)]
                 
                 for _ in range(gen_kwargs["max_new_tokens"]):
                     out = self.model.codi(
@@ -782,7 +1147,7 @@ class MultiDatasetEvaluator:
                         probs = F.softmax(logits, dim=-1)
                         next_token_ids = torch.multinomial(probs, num_samples=1).squeeze(-1)
                     
-                    for b in range(batch_size):
+                    for b in range(cur_batch_size):
                         if not finished[b]:
                             pred_tokens[b].append(next_token_ids[b].item())
                             if next_token_ids[b] == self.tokenizer.eos_token_id:
@@ -794,12 +1159,47 @@ class MultiDatasetEvaluator:
                     output = self.model.get_embd(self.model.codi, self.model.model_name)(next_token_ids).unsqueeze(1)
                 
                 # 解码并提取答案
-                for tokens in pred_tokens:
+                for b, tokens in enumerate(pred_tokens):
                     decoded = self.tokenizer.decode(tokens, skip_special_tokens=True)
-                    pred = extract_answer(decoded, answer_type)
+                    question_text = questions[sample_idx] if questions else None
+                    pred = extract_answer(decoded, answer_type, question=question_text)
                     all_predictions.append(pred)
+                    if save_latents:
+                        all_latents.append(batch_latents[b])
+                    all_output_tokens.append(len(tokens))
+                    all_raw_outputs.append(decoded)
+                    sample_idx += 1
         
-        return all_predictions
+        # Token 统计汇总
+        token_stats = {
+            "output_tokens_per_sample": all_output_tokens,
+            "avg_output_tokens": sum(all_output_tokens) / len(all_output_tokens) if all_output_tokens else 0,
+        }
+        
+        # 汇总所有 batch 的 radius 统计
+        trajectory_stats = {}
+        if all_radius_stats:
+            import numpy as np
+            all_max = [s["radius_max"] for s in all_radius_stats]
+            all_mean = [s["radius_mean"] for s in all_radius_stats]
+            all_viol = [s["violation_rate"] for s in all_radius_stats]
+            total_samples = sum(s["batch_size"] for s in all_radius_stats)
+            
+            trajectory_stats = {
+                "num_batches": len(all_radius_stats),
+                "total_samples": total_samples,
+                "threshold": all_radius_stats[0]["threshold"],
+                "radius_max": float(np.max(all_max)),
+                "radius_mean": float(np.mean(all_mean)),
+                "radius_mean_std": float(np.std(all_mean)),
+                "violation_rate_mean": float(np.mean(all_viol)),
+                "violation_rate_max": float(np.max(all_viol)),
+                "per_batch": all_radius_stats,  # 保留每个 batch 的详细数据
+            }
+            print(f"\n[Radius 汇总] {len(all_radius_stats)} batches, {total_samples} samples")
+            print(f"[Radius 汇总] max={trajectory_stats['radius_max']:.4f}, mean={trajectory_stats['radius_mean']:.4f}, viol_rate={trajectory_stats['violation_rate_mean']:.4f}")
+        
+        return all_predictions, all_latents, token_stats, all_raw_outputs, trajectory_stats
 
 
 # ============================================================
@@ -819,6 +1219,10 @@ class MultiDatasetArgs:
     result_dir: str = field(
         default=None,
         metadata={"help": "结果保存目录"}
+    )
+    save_latents: bool = field(
+        default=True,
+        metadata={"help": "是否保存每道题的 latent embeddings（文件可能很大）"}
     )
 
 
@@ -872,7 +1276,10 @@ def main():
             print(f"{'='*80}")
             
             try:
-                result = evaluator.evaluate_dataset(dataset, data_args.batch_size)
+                # 只在 gsm8k 数据集上保存 latents
+                should_save_latents = multi_args.save_latents and dataset == "gsm8k"
+                # should_save_latents = False # 目前全部不保存 latent，避免占用过多空间
+                result = evaluator.evaluate_dataset(dataset, data_args.batch_size, save_latents=should_save_latents)
                 
                 results_manager.save_run_results(
                     model_name=evaluator.model_name,
@@ -882,6 +1289,11 @@ def main():
                     accuracy=result["accuracy"],
                     questions=result["questions"],
                     answers=result["answers"],
+                    trajectory_stats=result.get("trajectory_stats"),  # radius/轨迹统计
+                    latents=result.get("latents") if should_save_latents else None,
+                    elapsed_time=result.get("elapsed_time"),
+                    token_stats=result.get("token_stats"),
+                    raw_outputs=result.get("raw_outputs"),  # DEBUG: 传入原始输出
                 )
             except Exception as e:
                 print(f"[Error] 测试 {dataset} 失败: {e}")

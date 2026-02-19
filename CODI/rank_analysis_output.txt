@@ -1,0 +1,81 @@
+================================================================================
+Latent Token Matrix Rank Analysis
+================================================================================
+
+============================================================
+Analyzing: latent_7 (codi)
+Path: /data/yhao/baseline/CODI/results/latent_sweep_gsm8k/latent_7/models/codi/gsm8k/r...
+  Loading data...
+  Shape: 1319 samples x 8 iterations x 2048 dim
+  Tokens after removing last: 7
+  Computing ranks for 50 samples...
+    Progress: 10/50
+    Progress: 20/50
+    Progress: 30/50
+    Progress: 40/50
+    Progress: 50/50
+
+  === Results ===
+  Number of tokens: 7
+  Rank: 7.00 ± 0.00 (min=7, max=7)
+  Effective Rank: 4.19 ± 0.51
+  Rank / Tokens: 1.0000
+
+============================================================
+Analyzing: latent_17 (16long)
+Path: /data/yhao/baseline/CODI/results/16long/models/decoder-trajectory-euclidean-16lo...
+  Loading data...
+  Shape: 1319 samples x 17 iterations x 2048 dim
+  Tokens after removing last: 16
+  Computing ranks for 50 samples...
+    Progress: 10/50
+    Progress: 20/50
+    Progress: 30/50
+    Progress: 40/50
+    Progress: 50/50
+
+  === Results ===
+  Number of tokens: 16
+  Rank: 16.00 ± 0.00 (min=16, max=16)
+  Effective Rank: 7.25 ± 1.38
+  Rank / Tokens: 1.0000
+
+============================================================
+Analyzing: latent_33 (32long)
+Path: /data/yhao/baseline/CODI/results/32long/models/decoder-trajectory-euclidean-32lo...
+  Loading data...
+  Shape: 1319 samples x 33 iterations x 2048 dim
+  Tokens after removing last: 32
+  Computing ranks for 50 samples...
+    Progress: 10/50
+    Progress: 20/50
+    Progress: 30/50
+    Progress: 40/50
+    Progress: 50/50
+
+  === Results ===
+  Number of tokens: 32
+  Rank: 32.00 ± 0.00 (min=32, max=32)
+  Effective Rank: 9.14 ± 2.49
+  Rank / Tokens: 1.0000
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+Model                  Tokens   Rank             Eff Rank         Rank/Tokens
+--------------------------------------------------------------------------------
+latent_7 (codi)        7        7±0.0            4.19±0.51        1.0000
+latent_17 (16long)     16       16±0.0           7.25±1.38        1.0000
+latent_33 (32long)     32       32±0.0           9.14±2.49        1.0000
+================================================================================
+
+================================================================================
+ANALYSIS CONCLUSIONS
+================================================================================
+✓ All models achieve FULL RANK in the latent token matrices
+  This means each latent token contributes linearly independent information
+
+  Effective Rank comparison:
+  - latent_7 (codi): 4.19 / 7 = 59.92% of tokens
+  - latent_17 (16long): 7.25 / 16 = 45.32% of tokens
+  - latent_33 (32long): 9.14 / 32 = 28.56% of tokens

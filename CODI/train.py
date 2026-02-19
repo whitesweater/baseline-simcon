@@ -396,21 +396,61 @@ def train():
             token_nums = []
             # import pdb; pdb.set_trace()
             # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')         
-            cache_dir = os.environ.get('CODI_CACHE_DIR', os.path.join(os.path.dirname(__file__), 'cache'))
-            cache_path = os.path.join(cache_dir, 'dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
-            cached_data = torch.load(cache_path)
-            self.data_dict = cached_data["data_dict"]
-            self.keys = cached_data["keys"]
-            logging.info(
-                f"✓ Cache loaded! {len(self)} samples across "
-            )
-            return    
+
+            # icot 数据集优先从缓存加载，必须在 for 循环之前处理
+            if "icot" in self.data_name and "full" not in self.data_name:
+                cache_dir = os.environ.get('CODI_CACHE_DIR', os.path.join(os.path.dirname(__file__), 'cache'))
+                cache_path = os.path.join(cache_dir, 'dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
+                if os.path.exists(cache_path):
+                    cached_data = torch.load(cache_path)
+                    self.data_dict = cached_data["data_dict"]
+                    self.keys = cached_data["keys"]
+                    logging.info(f"✓ Cache loaded! {len(self)} samples")
+                    return
+                else:
+                    logging.warning(f"Cache not found at {cache_path}, will load from raw_data")
+
             for num_iter, example in tqdm(enumerate(raw_data)):
+                if training_args.exp_mode and num_iter > training_args.exp_data_num:
+                    break
+                
+                # coin_flip 数据集使用 query 字段而不是 question 字段，需要先处理
+                # 必须放在访问 example['question'] 或检查 example['cot'] 之前
+                if "coin_flip" in self.data_name:
+                    question = example['query'].strip() + '\n'
+                    cot = example.get('reasoning', example.get('condensed_reasoning', '')).strip() + "\n"
+                    answer = f"The answer is: {str(example['answer']).strip()}"
+                    
+                    # avoid OOM: remove very long data
+                    token_num = len(tokenizer.encode(question + " " + cot + " " + answer))
+                    if token_num > training_args.max_token_num: 
+                        continue
+                    questions.append(question)
+                    cots.append(cot)
+                    answers.append(answer)
+                    continue
+                
+                # multiarith 和 svamp 数据集使用 query/reasoning/answer 字段
+                # 必须放在访问 example['question'] 或检查 example['cot'] 之前
+                if "multiarith" in self.data_name or "svamp" in self.data_name:
+                    question = example['query'].strip() + '\n'
+                    cot = example.get('reasoning', example.get('full_answer', '')).strip() + "\n"
+                    answer = f"The answer is: {str(example['answer']).strip()}"
+                    
+                    # avoid OOM: remove very long data
+                    token_num = len(tokenizer.encode(question + " " + cot + " " + answer))
+                    if token_num > training_args.max_token_num: 
+                        continue
+                    questions.append(question)
+                    cots.append(cot)
+                    answers.append(answer)
+                    continue
+                
+                # 其他数据集的 cot 字段处理
                 if 'cot' not in example: 
                     example['cot'] = example['steps']
                     example['cot'] = ' '.join(example['cot'])
-                if training_args.exp_mode and num_iter > training_args.exp_data_num:
-                    break
+                
                 question = f"{example['question']}"
                 if "icot" in self.data_name and "full" in self.data_name: # icot-full (GSM8k-Aug-NL)
                     # bad data
@@ -429,31 +469,6 @@ def train():
                     answer = answer.replace("####", "")
                     questions.append(question)
                     cots.append(". ".join(cot)+".\n")
-                    answers.append(answer)
-                elif "icot" in self.data_name: # icot (GSM8k-Aug)
-                    # avoid OOM: remove very long data
-                    token_num = len(tokenizer.encode(example["question"] + example["cot"] + example["answer"]))
-                    if token_num > training_args.max_token_num:
-                        continue
- 
-                    cot_list = []
-                    cot = f"{example['cot']}".split(" ")
-                    if not training_args.include_last_cot:
-                        cot = cot[:-1]
-                    
-                    len_cot = len(cot) 
-                    for i in range(training_args.num_latent):
-                        cot_list.append(" ".join(cot[:max(0, len_cot-i)]))
-                    answer = example['answer'].split(' ')[-1]
-                    
-                    # some answers startwith the negative sign (-), bringing distillation problems for LLaMA
-                    if not answer[0].isdigit():
-                        continue
-
-                    answer = f"The answer is: {answer}" 
-                    answer = answer.replace("####", "")
-                    questions.append(question)
-                    cots.append(" ".join(cot))
                     answers.append(answer)
                 elif "commonsense" in self.data_name or "strategy" in self.data_name:
                     question = example['question'].strip() + '\n'
@@ -554,6 +569,30 @@ def train():
         elif "prontoqa" in data_args.data_name:
             prontoqa_path = os.environ.get('CODI_PRONTOQA_PATH', '/home/ubuntu/coconut/data/prontoqa_train.json')
             with open(prontoqa_path) as f:
+                dataset = json.load(f)
+            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
+            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+        elif "coin_flip" in data_args.data_name:
+            # coin_flip 数据集从本地 JSON 文件加载
+            coin_flip_path = os.environ.get('CODI_COIN_FLIP_PATH', './SemCoT/datasets/coin_flip/train_42.json')
+            with open(coin_flip_path) as f:
+                dataset = json.load(f)
+            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
+            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+        elif "multiarith" in data_args.data_name:
+            # multiarith 数据集从本地 JSON 文件加载
+            multiarith_path = os.environ.get('CODI_MULTIARITH_PATH', './SemCoT/datasets/multiarith/train_42.json')
+            with open(multiarith_path) as f:
+                dataset = json.load(f)
+            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
+            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+        elif "svamp" in data_args.data_name:
+            # svamp 数据集从本地 JSON 文件加载
+            svamp_path = os.environ.get('CODI_SVAMP_PATH', './SemCoT/datasets/svamp/train_42.json')
+            with open(svamp_path) as f:
                 dataset = json.load(f)
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
             data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)

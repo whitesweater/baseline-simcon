@@ -20,18 +20,20 @@ set -e
 # Load environment config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found"; exit 1; }
-
+source /data/yhao/baseline/.venv/bin/activate
 # =============================================================================
-# 默认配置
+# 默认配置（支持环境变量覆盖）
 # =============================================================================
-TRAINED_DIR="${CODI_SAVE_DIR}/codi-base/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11"
-RESULTS_DIR="${CODI_RESULT_DIR}/codi-base"
-DATASETS="gsm8k svamp gsm-hard multi-arith"  # 默认数据集
+TRAINED_DIR="${TRAINED_DIR:-/data/yhao/baseline/CODI/final_use_model_codi_sim_sircl/sim}"
+RESULTS_DIR="${RESULTS_DIR:-${CODI_RESULT_DIR}/time}"
+DATASETS="${DATASETS:-gsm8k}"
+# "
 NUM_RUNS=1
 MODELS=""  # 空表示测试所有
 DRY_RUN=false
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_OFFLINE=1
 # =============================================================================
 # 帮助信息
 # =============================================================================
@@ -41,8 +43,9 @@ usage() {
     echo "选项:"
     echo "  -r, --runs N          每个数据集运行的次数 (默认: 1)"
     echo "  -m, --models LIST     要测试的模型列表，空格分隔 (默认: 全部)"
-    echo "  -d, --datasets NAMES  数据集列表，空格分隔 (默认: gsm8k svamp gsm-hard multi-arith)"
-    echo "                        可用: gsm8k, svamp, gsm-hard, multi-arith, commonsense"
+    echo "  -d, --datasets NAMES  数据集列表，空格分隔 (默认: gsm8k svamp gsm-hard multi-arith commonsense)"
+    echo "                        可用: gsm8k, svamp, gsm-hard, multi-arith, commonsense,"
+    echo "                              strategyqa, aqua, asdiv, du"
     echo "  -o, --output DIR      结果输出目录 (默认: ${CODI_RESULT_DIR})"
     echo "  --dry-run             只显示命令，不实际运行"
     echo "  -h, --help            显示帮助"
@@ -170,7 +173,7 @@ for model in $MODELS; do
         --model_max_length 512 \
         --bf16 \
         --lora_r 128 --lora_alpha 32 --lora_init \
-        --batch_size 128 \
+        --batch_size 1 \
         --greedy True \
         --num_latent 6 \
         --use_prj True \

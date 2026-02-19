@@ -1,4 +1,4 @@
-# CODI Copilot Instructions
+·# CODI Copilot Instructions
 
 - **Purpose**: CODI trains LoRA-adapted causal LMs to generate implicit CoT latents then decode final answers, with optional auxiliary decoder + distillation from a teacher run on reference inputs ([src/model.py](src/model.py), [train.py](train.py)).
 - **Core model**: `CODI` wraps a Hugging Face causal LM, extends vocab with `pad`/`<bot>`/`<eot>` tokens, and can attach an optional second decoder path plus a projection MLP. LoRA targets differ by base model family (llama/mistral/falcon/qwen → q/k/v/o/up/down/gate proj; phi → q/k/v/dense/fc1/fc2; gpt2 → c_attn/c_proj/c_fc).
@@ -19,6 +19,7 @@
 - **Outputs/logging**: `print_loss` controls verbose loss logging; `log_full` unused currently. Distillation/std normalisation toggled by `distill_loss_div_std`.
 - **Extending**: When adding model families, update LoRA target module selection; when altering data formats, ensure `get_steps` markers and `answer` parsing remain consistent with downstream evaluation expecting numeric extraction via regex.
 - **Commands (examples)**:
+  - Activate Environment: `source /data/yhao/baseline/.venv/bin/activate`
   - Train (edit paths/tokens): `python train.py --model_name_or_path mistralai/Mistral-7B-Instruct-v0.2 --data_name icot --lora_init True --num_latent 5 --bf16 True --per_device_train_batch_size 1`
   - Train with trajectory consistency: `python train.py --model_name_or_path mistralai/Mistral-7B-Instruct-v0.2 --data_name icot --lora_init True --num_latent 5 --use_trajectory_consistency True --trajectory_space_type euclidean --trajectory_radius_threshold 2.0 --trajectory_loss_factor 0.1`
   - Test trajectory implementation: `python test_trajectory_consistency.py`

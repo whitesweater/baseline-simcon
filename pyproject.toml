@@ -34,6 +34,8 @@ dependencies = [
     "seaborn>=0.13.2",
     "wandb>=0.24.0",
     "modelscope>=1.33.0",
+    "umap-learn>=0.5.3",
+    "llvmlite>=0.40.0",
 ]
 
 [project.optional-dependencies]

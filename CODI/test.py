@@ -266,7 +266,9 @@ def evaluation(model_args, data_args, training_args):
             init_lora_weights=True,
         )
     else:
-        raise NotImplementedError
+        # No LoRA: 直接使用基础模型（用于 no-cot baseline 测试）
+        lora_config = None
+        print("[Eval] No LoRA mode: 使用基础模型进行测试")
     # import pdb; pdb.set_trace()
     model = CODI(model_args, training_args, lora_config)
     #if "llama" in model_args.model_name_or_path:
