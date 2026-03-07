@@ -24,6 +24,7 @@ from src.trajectory_consistency import TrajectoryConsistencyLoss
 from src.trajectory_acceleration import TrajectoryAccelerationLoss
 from src.trajectory_action import TrajectoryActionLoss
 from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
+from src.rank_diversity import RankDiversityLoss
 from torch.profiler import record_function
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -143,6 +144,12 @@ class TrainingArguments(transformers.TrainingArguments):
     trajectory_action_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the least action loss."})
     use_trajectory_geodesic: bool = field(default=False, metadata={"help": "Use geodesic deviation loss."})
     trajectory_geodesic_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the geodesic deviation loss."})
+    use_rank_diversity: bool = field(default=False, metadata={"help": "Use rank diversity loss to prevent latent token rank collapse."})
+    rank_diversity_mode: str = field(default="svd_entropy", metadata={"help": "Rank diversity loss mode: 'svd_entropy', 'cosine', or 'combined'."})
+    rank_diversity_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the rank diversity loss."})
+    rank_diversity_svd_weight: float = field(default=1.0, metadata={"help": "Weight for SVD entropy component in combined mode."})
+    rank_diversity_cosine_weight: float = field(default=0.5, metadata={"help": "Weight for cosine component in combined mode."})
+    rank_diversity_center: bool = field(default=True, metadata={"help": "Center latent matrix before SVD (recommended)."})
     run_test_on_save: bool = field(default=False, metadata={"help": "Run evaluation on the test set when saving the model checkpoint."})
 
 def print_trainable_parameters(model):
@@ -452,6 +459,17 @@ class CODI(torch.nn.Module):
                 curvature=training_args.trajectory_curvature
             )
 
+        # Rank Diversity Loss (prevents latent token rank collapse)
+        self.use_rank_diversity = training_args.use_rank_diversity
+        self.rank_diversity_loss_factor = training_args.rank_diversity_loss_factor
+        if self.use_rank_diversity:
+            self.rank_diversity_loss = RankDiversityLoss(
+                mode=training_args.rank_diversity_mode,
+                svd_weight=training_args.rank_diversity_svd_weight,
+                cosine_weight=training_args.rank_diversity_cosine_weight,
+                center_before_svd=training_args.rank_diversity_center,
+            )
+
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
             self.tokenizer.pad_token_id = self.pad_token_id
@@ -666,8 +684,8 @@ class CODI(torch.nn.Module):
                 past_key_values = outputs.past_key_values
                 latent_embd = outputs.hidden_states[-1][:, -1, :].unsqueeze(1)
                 
-                # Collect latent embeddings for all trajectory losses
-                if self.use_trajectory_consistency or self.use_trajectory_acceleration or self.use_trajectory_action or self.use_trajectory_geodesic:
+                # Collect latent embeddings for all trajectory losses and rank diversity
+                if self.use_trajectory_consistency or self.use_trajectory_acceleration or self.use_trajectory_action or self.use_trajectory_geodesic or self.use_rank_diversity:
                     latent_embeddings_for_consistency.append(latent_embd.squeeze(1))
                 
                 if self.use_prj:
@@ -797,7 +815,7 @@ class CODI(torch.nn.Module):
 
         # Calculate trajectory losses
         latent_embeddings_tensor = None
-        if (self.use_trajectory_consistency or self.use_trajectory_acceleration or self.use_trajectory_action or self.use_trajectory_geodesic) and len(latent_embeddings_for_consistency) > 0:
+        if (self.use_trajectory_consistency or self.use_trajectory_acceleration or self.use_trajectory_action or self.use_trajectory_geodesic or self.use_rank_diversity) and len(latent_embeddings_for_consistency) > 0:
             latent_embeddings_tensor = torch.stack(latent_embeddings_for_consistency, dim=0)
 
         if self.use_trajectory_consistency and latent_embeddings_tensor is not None:
@@ -829,6 +847,12 @@ class CODI(torch.nn.Module):
             geodesic_loss_total *= self.trajectory_geodesic_loss_factor
         else:
             geodesic_loss_total = torch.tensor(0.0, device=trajectory_loss_total.device)
+
+        if self.use_rank_diversity and latent_embeddings_tensor is not None:
+            rank_diversity_loss_total = self.rank_diversity_loss(latent_embeddings_tensor)
+            rank_diversity_loss_total *= self.rank_diversity_loss_factor
+        else:
+            rank_diversity_loss_total = torch.tensor(0.0, device=trajectory_loss_total.device)
         
         # Weigh the distillation loss
         distill_loss *= self.distill_loss_factor
@@ -839,11 +863,11 @@ class CODI(torch.nn.Module):
 
         if self.print_loss:
             if self.model_args.use_decoder:
-                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, explain_loss={explain_loss_total}, trajectory_loss={trajectory_loss_total}, acceleration_loss={acceleration_loss_total}, action_loss={action_loss_total}, geodesic_loss={geodesic_loss_total}')    
+                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, explain_loss={explain_loss_total}, trajectory_loss={trajectory_loss_total}, acceleration_loss={acceleration_loss_total}, action_loss={action_loss_total}, geodesic_loss={geodesic_loss_total}, rank_diversity_loss={rank_diversity_loss_total}')    
             else:
-                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, trajectory_loss={trajectory_loss_total}, acceleration_loss={acceleration_loss_total}, action_loss={action_loss_total}, geodesic_loss={geodesic_loss_total}')
+                print(f'loss={ce_loss+distill_loss}, ce_loss={ce_loss}, distill_loss={distill_loss}, ce_loss_total={ce_loss_total}, distill_loss_total={distill_loss_total}, ref_ce_loss={ref_ce_loss}, trajectory_loss={trajectory_loss_total}, acceleration_loss={acceleration_loss_total}, action_loss={action_loss_total}, geodesic_loss={geodesic_loss_total}, rank_diversity_loss={rank_diversity_loss_total}')
 
-        loss = ce_loss_total + distill_loss_total + ref_ce_loss + trajectory_loss_total + acceleration_loss_total + action_loss_total + geodesic_loss_total
+        loss = ce_loss_total + distill_loss_total + ref_ce_loss + trajectory_loss_total + acceleration_loss_total + action_loss_total + geodesic_loss_total + rank_diversity_loss_total
 
         if self.model_args.use_decoder:
             explain_loss_total = torch.as_tensor(explain_loss_total, device=loss.device, dtype=loss.dtype)
@@ -863,13 +887,15 @@ class CODI(torch.nn.Module):
             action_loss_total = action_loss_total.detach()
         if geodesic_loss_total != 0:
             geodesic_loss_total = geodesic_loss_total.detach()
+        if rank_diversity_loss_total != 0:
+            rank_diversity_loss_total = rank_diversity_loss_total.detach()
         if self.model_args.use_decoder:
             if explain_loss_total != 0:
                 explain_loss_total = explain_loss_total.detach()
         # print(f"{ce_loss_total=}, {distill_loss_total=}, {ref_ce_loss=}, {explain_loss_total}")
 
         if self.model_args.use_decoder:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "explain_loss": explain_loss_total, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total}
+            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "explain_loss": explain_loss_total, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total, "rank_diversity_loss": rank_diversity_loss_total}
         else:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total}
+            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total, "rank_diversity_loss": rank_diversity_loss_total}
 

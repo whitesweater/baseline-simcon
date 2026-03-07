@@ -117,6 +117,7 @@ class CustomTrainer(Trainer):
                 "acceleration_loss": _to_scalar(outputs.get("acceleration_loss")),
                 "action_loss": _to_scalar(outputs.get("action_loss")),
                 "geodesic_loss": _to_scalar(outputs.get("geodesic_loss")),
+                "rank_diversity_loss": _to_scalar(outputs.get("rank_diversity_loss")),
             }
             if not hasattr(self, "is_global_zero") or self.is_global_zero:
                 self.log(logs)
