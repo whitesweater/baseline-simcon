@@ -218,6 +218,7 @@ config.env
 CODI/results/**
 CODI/cache/**
 CODI/assets/**
+CODI_rebuttal_runs/**
 CODI/results1/**
 CODI/modelspace/**
 CODI/results_old/*
@@ -247,3 +248,4 @@ Coconut/wandb/latest-run
 # Rebuttal / revision workspace isolation
 CODI/SemCoT/
 CODI_rebuttal_runs/
+paper/

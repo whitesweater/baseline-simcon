@@ -25,8 +25,18 @@ source config.env
 /data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325
 ```
 
+如果你跑的是当前这轮 multi-backbone rebuttal，新入口是：
+
+- `train_on_gsm8k_dataset/prepare_assets.sh`
+- `train_on_gsm8k_dataset/train_llama1b.sh`
+- `train_on_gsm8k_dataset/train_llama3b.sh`
+- `train_on_gsm8k_dataset/train_llama8b.sh`
+- `train_on_gsm8k_dataset/train_qwen3.sh`
+- `train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
+
 如果你是从旧文档跳转到这里，请改为先阅读：
 
 1. `../PROJECT_GUIDE.md`
 2. `README.md`
-3. `TESTING_GUIDE.md`
+3. `train_on_gsm8k_dataset/`
+4. `TESTING_GUIDE.md`

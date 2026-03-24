@@ -62,6 +62,12 @@
 /data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325
 ```
 
+当前这轮 multi-backbone / extra-benchmark 实验，还会在其下继续隔出：
+
+```bash
+/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1
+```
+
 #### `CODI/local_datasets/`
 
 这是 CODI 当前运行时真正使用的本地 JSON 数据目录。当前保留并实际使用的数据包括：
@@ -188,6 +194,31 @@ SIRCL 在本项目中的定位是：
 - `Coconut/` 也在当前工作范围内
 - 处理 reviewer 问题时，默认可以准备跨 backbone 的对照或补实验
 
+### 3.5 当前新实验的具体落点
+
+截至 2026-03-24，这轮 rebuttal 默认新增的工作重点是：
+
+- 在 `GSM8K / icot` 主训练口径上扩展更多 backbone
+- 当前新增 backbone 以 `llama3b`、`llama8b`、`qwen3` 为主
+- 保持 `llama1b` 主线不丢，同时补 `math500`、`aime` 额外评测
+- 默认硬件配置按 `1 台机器 × 4 张 H800 80GB` 写脚本
+- 如果有多台机器，默认是一台机器跑一个 job
+
+当前这套实验的专用脚本入口是：
+
+- `CODI/train_on_gsm8k_dataset/prepare_assets.sh`
+- `CODI/train_on_gsm8k_dataset/train_llama1b.sh`
+- `CODI/train_on_gsm8k_dataset/train_llama3b.sh`
+- `CODI/train_on_gsm8k_dataset/train_llama8b.sh`
+- `CODI/train_on_gsm8k_dataset/train_qwen3.sh`
+- `CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
+
+与历史 `CODI/scripts/*.sh` 相比，这套入口额外做了几件事：
+
+- 单独隔离模型、cache、logs、results、manifests
+- 优先复用本机已有模型路径，不够时再按 `ModelScope -> HF Mirror -> HF original with proxy` 下载
+- 明确检查 `icot` cache 是否可用，不再在缺缓存时继续假装“准备完成”
+
 ---
 
 ## 4. 证据优先级与可信来源
@@ -248,6 +279,7 @@ CODI_RESULT_DIR=${CODI_RUN_ROOT}/results
 - 避免污染历史结果
 - 明确区分 revision 阶段的新运行与旧论文产物
 - 方便把代码提交与实验记录对应起来
+- 让 `git status` 不被新生成的 checkpoints / caches / logs 淹没
 
 ### 5.2 Git 与提交边界
 

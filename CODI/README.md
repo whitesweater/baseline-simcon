@@ -9,7 +9,21 @@ CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果
 - `../PROJECT_GUIDE.md`：仓库级总指南，包含 repo 边界、CODI/Coconut 关系、方法映射、可信结果、实验原则、Git 规则
 - `PROJECT_GUIDE.md`：CODI 子项目导读页，用于把旧入口引回根级总指南
 - `REBUTTAL_WORKSPACE.md`：CODI 侧 rebuttal 导读页，说明新的 workspace 规则已经合并到根级总指南
+- `train_on_gsm8k_dataset/`：当前 cross-backbone rebuttal 实验的专用脚本目录，包含资产准备、4 个直接训练入口和扩展评测入口
 - `TESTING_GUIDE.md`：CODI 的专项测试说明
+
+## 当前优先入口
+
+如果你现在要做的是这轮 rebuttal 的多 backbone 新实验，不建议先从旧的 `scripts/*.sh` 开始翻。
+
+优先使用：
+
+- `train_on_gsm8k_dataset/prepare_assets.sh`
+- `train_on_gsm8k_dataset/train_llama1b.sh`
+- `train_on_gsm8k_dataset/train_llama3b.sh`
+- `train_on_gsm8k_dataset/train_llama8b.sh`
+- `train_on_gsm8k_dataset/train_qwen3.sh`
+- `train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
 ## 目录
 

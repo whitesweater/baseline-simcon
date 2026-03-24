@@ -20,6 +20,7 @@ import math
 import re
 import os
 import json
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass, field
 from typing import Dict, Optional, List
 from datetime import datetime
@@ -135,6 +136,30 @@ DATASET_CONFIGS = {
         "answer_field": "answer",
         "answer_type": "boolean",  # yes/no
     },
+    "math500": {
+        "hf_id": "HuggingFaceH4/MATH-500",
+        "split": "test",
+        "question_field": "problem",
+        "answer_field": "answer",
+        "answer_type": "math",
+    },
+    "aime": {
+        "hf_id": "HuggingFaceH4/aime_2024",
+        "split": "train",
+        "question_field": "problem",
+        "answer_field": "answer",
+        "answer_type": "math",
+    },
+}
+
+DATASET_ALIASES = {
+    "math-500": "math500",
+    "math_500": "math500",
+    "math500": "math500",
+    "aime": "aime",
+    "aime24": "aime",
+    "aime_2024": "aime",
+    "aime-2024": "aime",
 }
 
 
@@ -169,6 +194,150 @@ def save_jsonl_line(filepath, data):
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "a", encoding="utf-8") as f:
         f.write(json.dumps(sanitize_for_json(data), ensure_ascii=False) + "\n")
+
+
+def canonicalize_dataset_name(data_name: str) -> str:
+    """统一用户输入的数据集别名。"""
+    key = data_name.strip().lower()
+    return DATASET_ALIASES.get(key, key)
+
+
+def _extract_last_boxed_content(text: str) -> Optional[str]:
+    """提取最后一个 \\boxed{...} / \\fbox{...} 的内容，支持简单嵌套。"""
+    last_start = -1
+    last_prefix_len = 0
+    for prefix in ("\\boxed{", "\\fbox{", "\\framebox{"):
+        idx = text.rfind(prefix)
+        if idx > last_start:
+            last_start = idx
+            last_prefix_len = len(prefix)
+    if last_start == -1:
+        return None
+
+    cursor = last_start + last_prefix_len
+    depth = 1
+    chars = []
+    while cursor < len(text):
+        ch = text[cursor]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return "".join(chars)
+        chars.append(ch)
+        cursor += 1
+    return None
+
+
+def _unwrap_simple_latex_wrappers(text: str) -> str:
+    """去掉常见的最外层 LaTeX 样式包装。"""
+    patterns = [
+        r"^\\text\{(.+)\}$",
+        r"^\\textbf\{(.+)\}$",
+        r"^\\mathbf\{(.+)\}$",
+        r"^\\mathrm\{(.+)\}$",
+        r"^\\operatorname\{(.+)\}$",
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for pattern in patterns:
+            match = re.fullmatch(pattern, text.strip(), flags=re.DOTALL)
+            if match:
+                text = match.group(1).strip()
+                changed = True
+    return text
+
+
+def _canonicalize_numeric_string(text: str) -> Optional[str]:
+    """将简单数字/分数字符串规整成统一格式。"""
+    candidate = text.strip()
+    if not candidate:
+        return None
+
+    latex_frac = re.fullmatch(r"\\frac\{(-?\d+)\}\{(-?\d+)\}", candidate)
+    slash_frac = re.fullmatch(r"(-?\d+)\s*/\s*(-?\d+)", candidate)
+    simple_number = re.fullmatch(r"-?\d+(?:\.\d+)?", candidate)
+
+    try:
+        if latex_frac:
+            numerator = Decimal(latex_frac.group(1))
+            denominator = Decimal(latex_frac.group(2))
+            if denominator == 0:
+                return None
+            value = numerator / denominator
+            return format(value.normalize(), "f").rstrip("0").rstrip(".") or "0"
+        if slash_frac:
+            numerator = Decimal(slash_frac.group(1))
+            denominator = Decimal(slash_frac.group(2))
+            if denominator == 0:
+                return None
+            value = numerator / denominator
+            return format(value.normalize(), "f").rstrip("0").rstrip(".") or "0"
+        if simple_number:
+            value = Decimal(candidate)
+            return format(value.normalize(), "f").rstrip("0").rstrip(".") or "0"
+    except (InvalidOperation, ZeroDivisionError):
+        return None
+    return None
+
+
+def normalize_math_answer(text: str) -> str:
+    """将数学数据集答案规整成便于比较的形式。"""
+    if text is None:
+        return ""
+
+    candidate = str(text).strip()
+    boxed = _extract_last_boxed_content(candidate)
+    if boxed:
+        candidate = boxed.strip()
+
+    candidate = candidate.replace("\\left", "").replace("\\right", "")
+    candidate = candidate.replace("\\!", "")
+    candidate = candidate.replace("\\,", "")
+    candidate = candidate.replace("\\displaystyle", "")
+    candidate = candidate.replace("$", "")
+    candidate = candidate.replace("\\(", "(").replace("\\)", ")")
+    candidate = candidate.replace("\\[", "[").replace("\\]", "]")
+    candidate = candidate.replace("^\\circ", "")
+    candidate = candidate.replace("^{\\circ}", "")
+    candidate = _unwrap_simple_latex_wrappers(candidate)
+    candidate = candidate.strip().rstrip(".")
+
+    if candidate.startswith("(") and candidate.endswith(")"):
+        inner = candidate[1:-1].strip()
+        if "," not in inner:
+            candidate = inner
+
+    candidate = re.sub(r"\s+", "", candidate).lower()
+
+    numeric = _canonicalize_numeric_string(candidate)
+    if numeric is not None:
+        return numeric
+
+    return candidate
+
+
+def answers_match(pred, gold) -> bool:
+    """统一的答案比较逻辑，兼容数字/布尔/选择题/数学表达式。"""
+    if isinstance(pred, float) and math.isinf(pred):
+        return False
+    if isinstance(gold, float) and math.isinf(gold):
+        return False
+    if isinstance(pred, bool) or isinstance(gold, bool):
+        return pred == gold
+    if isinstance(pred, (int, float)) and isinstance(gold, (int, float)):
+        return pred == gold
+
+    pred_norm = normalize_math_answer(str(pred))
+    gold_norm = normalize_math_answer(str(gold))
+    if pred_norm == gold_norm:
+        return True
+
+    pred_num = _canonicalize_numeric_string(pred_norm)
+    gold_num = _canonicalize_numeric_string(gold_norm)
+    return pred_num is not None and pred_num == gold_num
 
 
 def load_state_dict_from_ckpt(ckpt_dir, token=None):
@@ -217,6 +386,7 @@ def get_model_name_from_ckpt(ckpt_dir):
 # ============================================================
 def load_dataset_by_name(data_name: str):
     """加载指定数据集"""
+    data_name = canonicalize_dataset_name(data_name)
     if data_name not in DATASET_CONFIGS:
         raise ValueError(f"未知数据集: {data_name}。支持: {list(DATASET_CONFIGS.keys())}")
     
@@ -247,9 +417,9 @@ def load_dataset_by_name(data_name: str):
         try:
             # 首先尝试离线模式（直接使用本地缓存）
             if hf_config:
-                return load_dataset(hf_id, hf_config, trust_remote_code=True)
+                return load_dataset(hf_id, hf_config)
             else:
-                return load_dataset(hf_id, trust_remote_code=True)
+                return load_dataset(hf_id)
         except Exception as e:
             print(f"[Data] 在线加载失败: {e}")
             print(f"[Data] 尝试强制使用本地缓存...")
@@ -259,9 +429,9 @@ def load_dataset_by_name(data_name: str):
             os.environ["HF_DATASETS_OFFLINE"] = "1"
             try:
                 if hf_config:
-                    return load_dataset(hf_id, hf_config, trust_remote_code=True)
+                    return load_dataset(hf_id, hf_config)
                 else:
-                    return load_dataset(hf_id, trust_remote_code=True)
+                    return load_dataset(hf_id)
             finally:
                 # 恢复环境变量
                 if old_offline is None:
@@ -275,26 +445,34 @@ def load_dataset_by_name(data_name: str):
     try:
         if hf_config:
             print(f"[Data] 加载数据集 (离线优先): {data_name} ({config['hf_id']}/{hf_config})")
-            dataset = load_dataset(config["hf_id"], hf_config, trust_remote_code=True)
+            dataset = load_dataset(config["hf_id"], hf_config)
         else:
             print(f"[Data] 加载数据集 (离线优先): {data_name} ({config['hf_id']})")
-            dataset = load_dataset(config["hf_id"], trust_remote_code=True)
+            dataset = load_dataset(config["hf_id"])
         print(f"[Data] ✓ 从本地缓存加载成功")
     except Exception as e:
         print(f"[Data] 本地缓存不存在，尝试在线加载: {e}")
         os.environ.pop("HF_DATASETS_OFFLINE", None)
         if hf_config:
-            dataset = load_dataset(config["hf_id"], hf_config, trust_remote_code=True)
+            dataset = load_dataset(config["hf_id"], hf_config)
         else:
-            dataset = load_dataset(config["hf_id"], trust_remote_code=True)
+            dataset = load_dataset(config["hf_id"])
     finally:
         os.environ.pop("HF_DATASETS_OFFLINE", None)
     
     if config["split"] == "all":
         # 特殊处理：合并所有 split
         test_set = concatenate_datasets([dataset["train"], dataset["test"]])
-    else:
+    elif config["split"] in dataset:
         test_set = dataset[config["split"]]
+    else:
+        available_splits = list(dataset.keys())
+        if len(available_splits) == 1:
+            fallback_split = available_splits[0]
+            print(f"[Data] 配置 split={config['split']} 不存在，回退到唯一 split: {fallback_split}")
+            test_set = dataset[fallback_split]
+        else:
+            raise KeyError(f"数据集 {data_name} 不存在 split={config['split']}，可用: {available_splits}")
     
     return test_set, config
 
@@ -336,6 +514,10 @@ def prepare_questions_and_answers(test_set, config):
             if match:
                 answers.append(match.group(1))
                 continue
+
+        if answer_type == "math":
+            answers.append(normalize_math_answer(str(ans)))
+            continue
         
         # 处理布尔值 (StrategyQA, coin_flip)
         if isinstance(ans, bool):
@@ -425,6 +607,25 @@ def extract_answer(sentence: str, answer_type: str, question: str = None):
             return True
         else:
             return False
+    elif answer_type == "math":
+        candidates = []
+        boxed = _extract_last_boxed_content(sentence)
+        if boxed:
+            candidates.append(boxed)
+        for marker in ["The answer is:", "Final answer:", "Answer:"]:
+            idx = sentence.lower().rfind(marker.lower())
+            if idx != -1:
+                candidates.append(sentence[idx + len(marker):])
+        lines = [line.strip() for line in sentence.splitlines() if line.strip()]
+        if lines:
+            candidates.append(lines[-1])
+        candidates.append(sentence)
+
+        for candidate in candidates:
+            normalized = normalize_math_answer(candidate)
+            if normalized:
+                return normalized
+        return float('inf')
     
     else:
         # 数字答案
@@ -436,7 +637,7 @@ def extract_answer(sentence: str, answer_type: str, question: str = None):
 
 def compute_accuracy(gold: list, pred: list):
     """计算准确率"""
-    acc = sum(1 for p, g in zip(pred, gold) if p == g)
+    acc = sum(1 for p, g in zip(pred, gold) if answers_match(p, g))
     return acc / len(gold) if gold else 0.0
 
 

@@ -17,6 +17,7 @@
 - `CODI/train.py`
 - `CODI/src/model.py`
 - `Coconut/run.py`
+- `CODI/train_on_gsm8k_dataset/`
 
 ## 仓库结构
 
@@ -38,6 +39,7 @@
 - 新实验默认写到 `CODI_rebuttal_runs/rebuttal_20260325`
 - 冲突时优先以论文最终口径和可信历史产物为准
 - 当前默认工作重心是 cross-backbone 的 rebuttal 新实验
+- 当前多 backbone 新训练与 `math500 / aime` 扩展评测，优先走 `CODI/train_on_gsm8k_dataset/`
 
 推荐环境变量：
 
@@ -55,6 +57,9 @@ CODI_RESULT_DIR=${CODI_RUN_ROOT}/results
 - [`CODI/README.md`](CODI/README.md)
   - CODI 子项目说明
   - 适合在明确要进入 CODI 训练与评测脚本后继续阅读
+- `CODI/train_on_gsm8k_dataset/`
+  - 当前 cross-backbone rebuttal 实验的专用脚本目录
+  - 包含 `prepare_assets.sh`、4 个直接训练入口和 `llama1b` 的扩展评测入口
 - [`CODI/PROJECT_GUIDE.md`](CODI/PROJECT_GUIDE.md)
   - 兼容旧入口的导读页
 - [`CODI/REBUTTAL_WORKSPACE.md`](CODI/REBUTTAL_WORKSPACE.md)
@@ -75,5 +80,13 @@ source config.env
 - `CODI_RUN_ROOT`
 - `CODI_SAVE_DIR`
 - `CODI_RESULT_DIR`
+
+如果你现在要把任务分发到多台 `4 x H800 80GB` 机器，优先直接执行：
+
+```bash
+bash CODI/train_on_gsm8k_dataset/train_llama1b.sh
+```
+
+其余 `llama3b`、`llama8b`、`qwen3` 和 `llama1b` 额外评测入口，也都统一放在 `CODI/train_on_gsm8k_dataset/`。
 
 如果后续 reviewer / rebuttal 任务清单有单独文件，它也应与本仓库文档一起作为正式输入。

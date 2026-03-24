@@ -11,9 +11,10 @@
 1. `../PROJECT_GUIDE.md`
 2. `README.md`
 3. `REBUTTAL_WORKSPACE.md`
-4. `TESTING_GUIDE.md`
-5. `train.py`
-6. `src/model.py`
+4. `train_on_gsm8k_dataset/`
+5. `TESTING_GUIDE.md`
+6. `train.py`
+7. `src/model.py`
 
 ## 这个文件现在保留什么
 
@@ -27,6 +28,7 @@
 如果你已经明确是在处理 `CODI/` 这条代码线，优先看：
 
 - `README.md`
+- `train_on_gsm8k_dataset/`
 - `TESTING_GUIDE.md`
 - `train.py`
 - `src/model.py`
@@ -42,5 +44,6 @@
 - `CODI/local_datasets/` 是当前默认本地数据入口
 - `CODI/SemCoT/` 只是外部参考目录
 - 从 2026-03-25 起，新实验默认写到 `../CODI_rebuttal_runs/rebuttal_20260325`
+- 当前多 backbone rebuttal 训练优先走 `train_on_gsm8k_dataset/`
 
 如果这些事实和其他旧文档冲突，以根目录 `PROJECT_GUIDE.md` 为准。

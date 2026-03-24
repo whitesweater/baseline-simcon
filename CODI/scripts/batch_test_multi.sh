@@ -27,6 +27,7 @@ source /data/yhao/baseline/.venv/bin/activate
 TRAINED_DIR="${TRAINED_DIR:-/data/yhao/baseline/CODI/final_use_model_codi_sim_sircl/sim}"
 RESULTS_DIR="${RESULTS_DIR:-${CODI_RESULT_DIR}/time}"
 DATASETS="${DATASETS:-gsm8k}"
+BASE_MODEL_PATH="${BASE_MODEL_PATH:-}"
 # "
 NUM_RUNS=1
 MODELS=""  # 空表示测试所有
@@ -45,8 +46,9 @@ usage() {
     echo "  -m, --models LIST     要测试的模型列表，空格分隔 (默认: 全部)"
     echo "  -d, --datasets NAMES  数据集列表，空格分隔 (默认: gsm8k svamp gsm-hard multi-arith commonsense)"
     echo "                        可用: gsm8k, svamp, gsm-hard, multi-arith, commonsense,"
-    echo "                              strategyqa, aqua, asdiv, du"
+    echo "                              strategyqa, aqua, asdiv, du, math500, aime"
     echo "  -o, --output DIR      结果输出目录 (默认: ${CODI_RESULT_DIR})"
+    echo "  -b, --base-model PATH 显式指定 base model 路径；不传时按模型名启发式选择"
     echo "  --dry-run             只显示命令，不实际运行"
     echo "  -h, --help            显示帮助"
     echo ""
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -o|--output)
             RESULTS_DIR="$2"
+            shift 2
+            ;;
+        -b|--base-model)
+            BASE_MODEL_PATH="$2"
             shift 2
             ;;
         --dry-run)
@@ -135,11 +141,37 @@ log "  - 模型列表: ${MODELS}"
 log "  - 数据集: ${DATASETS}"
 log "  - 每个数据集运行次数: ${NUM_RUNS}"
 log "  - 结果目录: ${RESULTS_DIR}"
+log "  - Base model override: ${BASE_MODEL_PATH:-<auto>}"
 log "  - 日志文件: ${LOG_FILE}"
 log "============================================================================"
 log ""
 log "执行策略: 每个模型加载一次，然后在所有数据集上测试"
 log "============================================================================"
+
+resolve_base_model_path() {
+    local model_name="$1"
+    local ckpt_path="$2"
+    local hint
+    hint="$(printf "%s %s" "${model_name}" "${ckpt_path}" | tr '[:upper:]' '[:lower:]')"
+
+    if [[ -n "${BASE_MODEL_PATH}" ]]; then
+        echo "${BASE_MODEL_PATH}"
+        return
+    fi
+    if [[ "${hint}" == *"qwen"* ]] && [[ -n "${CODI_QWEN_PATH:-}" ]]; then
+        echo "${CODI_QWEN_PATH}"
+        return
+    fi
+    if [[ "${hint}" == *"8b"* ]]; then
+        echo "${CODI_LLAMA8B_PATH}"
+        return
+    fi
+    if [[ "${hint}" == *"3b"* ]]; then
+        echo "${CODI_LLAMA3B_PATH}"
+        return
+    fi
+    echo "${CODI_LLAMA1B_PATH}"
+}
 
 total_models=0
 passed_models=0
@@ -156,15 +188,18 @@ for model in $MODELS; do
     fi
     
     log ""
+    base_model_path="$(resolve_base_model_path "${model}" "${ckpt_dir}")"
+    
     log "═══════════════════════════════════════════════════════════════════════════════"
     log "🔧 模型: ${model}"
     log "   Checkpoint: ${ckpt_dir}"
+    log "   Base model: ${base_model_path}"
     log "   数据集: ${DATASETS}"
     log "   运行次数: ${NUM_RUNS}"
     log "═══════════════════════════════════════════════════════════════════════════════"
     
     cmd="python ${SCRIPT_DIR}/../test_multi_dataset.py \
-        --model_name_or_path \"${CODI_LLAMA1B_PATH}\" \
+        --model_name_or_path \"${base_model_path}\" \
         --ckpt_dir \"${ckpt_dir}\" \
         --datasets \"${DATASETS}\" \
         --num_runs ${NUM_RUNS} \
