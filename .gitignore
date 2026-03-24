@@ -243,3 +243,7 @@ CODI/final_use_model_codi_sim_sircl/
 *.png
 Coconut/wandb/latest-run
 Coconut/wandb/latest-run
+
+# Rebuttal / revision workspace isolation
+CODI/SemCoT/
+CODI_rebuttal_runs/

@@ -576,7 +576,7 @@ def train():
             return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
         elif "coin_flip" in data_args.data_name:
             # coin_flip 数据集从本地 JSON 文件加载
-            coin_flip_path = os.environ.get('CODI_COIN_FLIP_PATH', './SemCoT/datasets/coin_flip/train_42.json')
+            coin_flip_path = os.environ.get('CODI_COIN_FLIP_PATH', './local_datasets/coin_flip/train_42.json')
             with open(coin_flip_path) as f:
                 dataset = json.load(f)
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
@@ -584,7 +584,7 @@ def train():
             return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
         elif "multiarith" in data_args.data_name:
             # multiarith 数据集从本地 JSON 文件加载
-            multiarith_path = os.environ.get('CODI_MULTIARITH_PATH', './SemCoT/datasets/multiarith/train_42.json')
+            multiarith_path = os.environ.get('CODI_MULTIARITH_PATH', './local_datasets/multiarith/train_42.json')
             with open(multiarith_path) as f:
                 dataset = json.load(f)
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
@@ -592,7 +592,7 @@ def train():
             return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
         elif "svamp" in data_args.data_name:
             # svamp 数据集从本地 JSON 文件加载
-            svamp_path = os.environ.get('CODI_SVAMP_PATH', './SemCoT/datasets/svamp/train_42.json')
+            svamp_path = os.environ.get('CODI_SVAMP_PATH', './local_datasets/svamp/train_42.json')
             with open(svamp_path) as f:
                 dataset = json.load(f)
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)

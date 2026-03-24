@@ -231,12 +231,12 @@ CODI/
 ├── 📁 train_on_multiarith_dataset/ # MultiArith 训练脚本
 ├── 📁 train_on_svamp_dataset/     # SVAMP 训练脚本
 │
-├── 📁 SemCoT/                     # SemCoT 相关代码/数据
-│   ├── 📁 data/
-│   ├── 📁 datasets/               # 本地数据集文件
-│   │   ├── 📁 multiarith/
-│   │   └── 📁 svamp/
-│   └── ...
+├── 📁 local_datasets/             # CODI 实际运行使用的本地 JSON 数据
+│   ├── 📁 coin_flip/
+│   ├── 📁 multiarith/
+│   └── 📁 svamp/
+│
+├── 📁 SemCoT/                     # 外部参考仓库（主要保留作数据来源/处理参考）
 │
 ├── 📁 plots/                      # 论文图表生成
 │   ├── 📄 color_config.py         # 统一颜色配置

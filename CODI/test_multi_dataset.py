@@ -74,7 +74,7 @@ DATASET_CONFIGS = {
         "answer_type": "number",
     },
     "multi-arith": {
-        "local_path": "./SemCoT/datasets/multiarith/eval_42.json",  # 优先使用本地数据
+        "local_path": "./local_datasets/multiarith/eval_42.json",  # 优先使用本地数据
         "hf_id": "ChilleD/MultiArith",  # 备用 HF 数据
         "split": "test",
         "question_field": "query",
@@ -82,7 +82,7 @@ DATASET_CONFIGS = {
         "answer_type": "number",
     },
     "svamp": {
-        "local_path": "./SemCoT/datasets/svamp/eval_42.json",  # 优先使用本地数据
+        "local_path": "./local_datasets/svamp/eval_42.json",  # 优先使用本地数据
         "hf_id": "ChilleD/SVAMP",  # 备用 HF 数据
         "split": "all",  # 特殊处理：合并 train 和 test
         "question_field": "query",
@@ -130,7 +130,7 @@ DATASET_CONFIGS = {
         "extract_choice_from_paren": True,  # 从 "(X)" 提取 X
     },
     "coin_flip": {
-        "local_path": "./SemCoT/datasets/coin_flip/eval_42.json",  # 本地 JSON 文件
+        "local_path": "./local_datasets/coin_flip/eval_42.json",  # 本地 JSON 文件
         "question_field": "query",
         "answer_field": "answer",
         "answer_type": "boolean",  # yes/no
