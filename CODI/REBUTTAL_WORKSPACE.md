@@ -1,48 +1,32 @@
 # Rebuttal Workspace Rules
 
-This note records the workspace rules agreed on for the post-submission revision cycle.
+`CODI/REBUTTAL_WORKSPACE.md` 不再单独维护完整的 workspace 规则。
 
-Before changing code or running new experiments, read `PROJECT_GUIDE.md` first. It is the higher-level handover document for this project.
+rebuttal / revision 阶段的输出隔离、Git 边界、可信历史结果、SemCoT 处理原则和提交规则，已经合并到仓库根目录：
 
-## Git boundary
+- `../PROJECT_GUIDE.md`
 
-- The actual Git repository root is `/data/yhao/baseline`.
-- `CODI/` is a subdirectory inside that repository.
-- All code changes for the revision cycle should be done on dedicated branches created from the `baseline` repo root.
+如果你现在要开始跑新的 CODI 实验，先做这几步：
 
-## Output isolation
+```bash
+cd /data/yhao/baseline/CODI
+source config.env
+```
 
-Starting from 2026-03-25, new experiments should not write into the legacy `CODI/outputs` or `CODI/results` trees.
+确认以下变量已经指向新的 rebuttal 输出根目录：
 
-Recommended local machine layout:
-- `CODI_RUN_ROOT=/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325`
-- `CODI_SAVE_DIR=${CODI_RUN_ROOT}/outputs`
-- `CODI_RESULT_DIR=${CODI_RUN_ROOT}/results`
+- `CODI_RUN_ROOT`
+- `CODI_SAVE_DIR`
+- `CODI_RESULT_DIR`
 
-This keeps rebuttal checkpoints, logs, metrics, and summaries separate from historical runs.
+当前默认目录是：
 
-## Trusted historical artifacts
+```bash
+/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325
+```
 
-For reading historical evidence, prefer:
-- `CODI/results_useful/`
-- plotting / analysis scripts under `CODI/plots/` and the source files they read
-- the final paper checkpoints under `CODI/final_use_model_codi_sim_sircl/`
+如果你是从旧文档跳转到这里，请改为先阅读：
 
-## SemCoT handling
-
-- `CODI/SemCoT/` is treated as an external reference repository.
-- The active CODI code should not rely on the whole SemCoT repo at runtime.
-- The dataset JSON files actually used by CODI are copied into `CODI/local_datasets/`.
-
-## Commit policy
-
-Commit:
-- code
-- scripts
-- concise documentation / notes needed to reproduce the workflow
-
-Do not commit:
-- checkpoints
-- logs
-- results
-- large generated artifacts
+1. `../PROJECT_GUIDE.md`
+2. `README.md`
+3. `TESTING_GUIDE.md`

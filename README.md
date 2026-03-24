@@ -1,110 +1,79 @@
-<!-- <p align="center" width="100%">
-<img src="./docs/static/images/logo_resize.png"  width="80%">
-</p> -->
+# Baseline Workspace
 
-<div align="center">
-    <h1 align="center"> SIM-CoT: Supervised Implicit Chain-of-Thought
-    </h1>
-</div>
+这个仓库当前作为项目维护与 rebuttal / revision 阶段的工作根目录使用。
 
-<p align="center">
-  <img src="assets/coconut_teaser.png">
-</p>
+它不是一份对外展示型 README，而是给当前维护者和后续接手者使用的内部入口页。
 
+## 先看哪里
 
-- **Authors**: [Xilin Wei](https://github.com/Wiselnn570), [Xiaoran Liu](https://scholar.google.de/citations?user=Qe6F4J4AAAAJ&hl=en), [Yuhang Zang](https://yuhangzang.github.io), [Xiaoyi Dong](https://lightdxy.github.io), [Yuhang Cao](https://scholar.google.com/citations?user=sJkqsqkAAAAJ&hl=en), [Jiaqi Wang](https://myownskyw7.github.io/), [Xipeng Qiu](https://xpqiu.github.io/en.html), [Dahua Lin](http://dahua.site/)
-- **Institutes**: Fudan University; Shanghai AI Laboratory; The Chinese University of Hong Kong; Shanghai Innovation Institute; 
-- **Resources**: [📖[Paper](https://arxiv.org/pdf/2509.20317)] [[🏠Project Page]()] [[🤗Huggingface](https://huggingface.co/collections/Wiselnn/sim-cot-supervised-implicit-chain-of-thought-68d895b00576f6166c19ab4f)]
-## 💡 Highlights
+第一次接手时，建议按这个顺序读：
 
-- 🔥 **Latent Instability in Implicit CoT:** We systematically analyze the limitations of implicit Chain-of-Thought methods and reveal a **latent instability issue**—as the number of implicit tokens increases, models tend to collapse into homogeneous latent states that lose operator semantics.  
+1. [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)
+2. [`CODI/README.md`](CODI/README.md)
+3. [`CODI/TESTING_GUIDE.md`](CODI/TESTING_GUIDE.md)
 
-- 🔥 **Step-Level Supervision with SIM-CoT:** We propose **S**upervised **IM**plicit-CoT (**SIM-CoT**), a plug-and-play module that introduces **step-level supervision** via an auxiliary decoder. This stabilizes optimization, prevents collapse, and ensures that latent tokens capture meaningful reasoning steps.
+如果要进入具体代码，再看：
 
-- 🔥 **Strong and Consistent Performance:** SIM-CoT consistently outperforms both explicit and implicit baselines. On GPT-2, it exceeds supervised CoT by **+2.1%**, Coconut by **+8.2%**, and CODI by **+4.3%**. Across larger LLaMA models (1B/3B/8B), it delivers **+1.5% to +9.0%** gains, and remains stable even with **8–16 implicit tokens**, where prior methods collapse.  
+- `CODI/train.py`
+- `CODI/src/model.py`
+- `Coconut/run.py`
 
-- 🔥 **Efficiency and Interpretability:** SIM-CoT adds **no extra inference cost** since the auxiliary decoder is discarded after training. It also provides **interpretability**, allowing each latent token to be decoded into a human-readable reasoning step.  
+## 仓库结构
 
-## 📜 News
+当前最重要的目录有：
 
-**[2025/9/24]** [Code]() and [Paper](https://arxiv.org/pdf/2509.20317) are released!
+- `CODI/`
+  - 当前主要的训练、评测、分析与历史结果目录
+  - `codi / codi_sircl / simcon / simcon_sircl` 的主代码线在这里
+- `Coconut/`
+  - 同仓库中的另一条 backbone 代码线
+  - 当前 rebuttal 视角下属于活跃范围，不是纯参考目录
+- `CODI_rebuttal_runs/`
+  - 2026-03-25 起的新实验输出根目录
+  - 用来隔离 rebuttal 阶段的新 checkpoints、logs 和 results
 
-## 👨‍💻 Todo
+## 当前默认工作原则
 
-- [x] Code Release
-- [x] Checkpoint Release
-- [x] Usage Instructions Release
+- Git 仓库根目录是 `baseline/`，不是 `CODI/`
+- 新实验默认写到 `CODI_rebuttal_runs/rebuttal_20260325`
+- 冲突时优先以论文最终口径和可信历史产物为准
+- 当前默认工作重心是 cross-backbone 的 rebuttal 新实验
 
+推荐环境变量：
 
-## 🛠️ Usage
-
-### 1. Clone the repository
 ```bash
-git clone https://github.com/InternLM/SIM-CoT.git
-cd SIM-CoT
+CODI_RUN_ROOT=/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325
+CODI_SAVE_DIR=${CODI_RUN_ROOT}/outputs
+CODI_RESULT_DIR=${CODI_RUN_ROOT}/results
 ```
 
-### 2. Install dependencies
+## 文档导航
+
+- [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)
+  - 仓库级总指南
+  - 说明目录边界、方法映射、可信结果、实验口径、Git 规则和 rebuttal 默认策略
+- [`CODI/README.md`](CODI/README.md)
+  - CODI 子项目说明
+  - 适合在明确要进入 CODI 训练与评测脚本后继续阅读
+- [`CODI/PROJECT_GUIDE.md`](CODI/PROJECT_GUIDE.md)
+  - 兼容旧入口的导读页
+- [`CODI/REBUTTAL_WORKSPACE.md`](CODI/REBUTTAL_WORKSPACE.md)
+  - 兼容旧入口的导读页
+
+## 快速上手
+
 ```bash
-pip install -r requirements.txt
+cd /data/yhao/baseline
+git status
+
+cd /data/yhao/baseline/CODI
+source config.env
 ```
 
----
+确认下面这些变量已经指向新的 rebuttal 输出目录：
 
-### 3. Training with Coconut + SIM-CoT
+- `CODI_RUN_ROOT`
+- `CODI_SAVE_DIR`
+- `CODI_RESULT_DIR`
 
-#### Step 1: Train the Coconut baseline
-```bash
-cd Coconut
-torchrun --nnodes 1 --nproc_per_node 8 run.py args/gsm_coconut.yaml
-```
-
-#### Step 2: Continue training with SIM-CoT
-Select a checkpoint that has been expanded to predefined implicit tokens, then continue training with SIM-CoT:
-```bash
-torchrun --nnodes 1 --nproc_per_node 8 run.py args/gsm_simcot.yaml
-```
-
----
-
-### 4. Evaluation with Coconut + SIM-CoT
-```bash
-torchrun --nnodes 1 --nproc_per_node 8 run.py args/gsm_simcot_eval.yaml
-```
-
----
-
-### 5. Training with CODI + SIM-CoT
-```bash
-cd CODI
-bash scripts/train_llama3b_gsm8k-aug-decoder-2.sh
-```
-
----
-
-### 6. Evaluation with CODI + SIM-CoT
-```bash
-bash CODI/scripts/test_llama3b-copy.sh
-```
-
-
-
-## ✒️ Citation
-
-If you find our work helpful for your research, please consider giving a star ⭐ and citation 📝
-
-```bibtex
-@article{wei2025simcot,
-  title={{SIM-COT}: Supervised Implicit Chain-of-Thought},
-  author={Wei, Xilin and Liu, Xiaoran and Zang, Yuhang and Dong, Xiaoyi and Cao, Yuhang and Wang, Jiaqi and Qiu, Xipeng and Lin, Dahua},
-  journal={arXiv preprint arXiv:2509.20317},
-  year={2025}
-}
-```
-
-## ❤️ Acknowledgments
-
-- [Coconut](https://github.com/facebookresearch/coconut): The codebase we built upon. Thanks for their wonderful work.
-- [CODI](https://github.com/zhenyi4/codi): Our work is based on this codebase; we are grateful for their valuable contribution.
-- [LLaMA series](https://huggingface.co/meta-llama/collections): The amazing open-sourced large language model!
-- [GPT2](https://huggingface.co/openai-community/gpt2): An impressive open-source large language model!
+如果后续 reviewer / rebuttal 任务清单有单独文件，它也应与本仓库文档一起作为正式输入。
