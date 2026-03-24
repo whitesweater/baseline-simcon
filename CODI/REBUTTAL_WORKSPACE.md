@@ -2,6 +2,8 @@
 
 This note records the workspace rules agreed on for the post-submission revision cycle.
 
+Before changing code or running new experiments, read `PROJECT_GUIDE.md` first. It is the higher-level handover document for this project.
+
 ## Git boundary
 
 - The actual Git repository root is `/data/yhao/baseline`.

@@ -2,6 +2,13 @@
 
 CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果语言模型（Causal LM）生成隐式思维链（Implicit Chain-of-Thought）潜在向量的研究项目。该框架支持教师蒸馏、轨迹一致性约束（Trajectory Consistency），以及可选的辅助解码器路径。
 
+## 接手建议
+
+如果你是第一次接手这个项目，或者正在做 rebuttal / revision，建议优先阅读：
+
+- `PROJECT_GUIDE.md`：项目总指南，包含目录关系、论文口径、方法映射、可信结果、实验原则、Git 规则
+- `REBUTTAL_WORKSPACE.md`：rebuttal 阶段专用的输出隔离与版本管理约定
+
 ## 目录
 
 - [项目架构](#项目架构)
