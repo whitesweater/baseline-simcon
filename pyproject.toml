@@ -51,6 +51,12 @@ modelscope = [
     "modelscope>=1.10.0",
 ]
 
+[tool.setuptools]
+# This repo uses pyproject.toml primarily as a dependency manifest for the
+# workspace, not as a single-package distribution. Disable automatic package
+# discovery so editable installs do not fail on the flat multi-project layout.
+py-modules = []
+
 [tool.uv]
 python-preference = "only-managed"
 
@@ -63,5 +69,4 @@ url = "https://pypi.org/simple/"
 
 [[tool.uv.index]]
 url = "http://harbor.internal.com:8081/repository/pypi-hkust/simple/"
-
 
