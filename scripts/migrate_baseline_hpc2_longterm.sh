@@ -21,6 +21,7 @@ START_BACKGROUND_MODELS=1
 DRY_RUN=0
 BUNDLE_PATH=""
 REMOTE_BUNDLE_PATH=""
+BUNDLE_BASE_REF=""
 
 usage() {
   cat <<'EOF'
@@ -161,11 +162,19 @@ prepare_branch_bundle() {
     return 0
   fi
 
+  if git -C "${REPO_ROOT}" rev-parse --verify "$BOOTSTRAP_BRANCH" >/dev/null 2>&1; then
+    BUNDLE_BASE_REF="$BOOTSTRAP_BRANCH"
+  elif git -C "${REPO_ROOT}" rev-parse --verify "origin/$BOOTSTRAP_BRANCH" >/dev/null 2>&1; then
+    BUNDLE_BASE_REF="origin/$BOOTSTRAP_BRANCH"
+  else
+    fail "Could not resolve a bundle base ref for $BOOTSTRAP_BRANCH"
+  fi
+
   local bundle_basename="baseline_${BRANCH//\//_}.bundle"
   BUNDLE_PATH="$(mktemp "${TMPDIR:-/tmp}/${bundle_basename}.XXXXXX")"
   REMOTE_BUNDLE_PATH="${DST_PARENT}/${bundle_basename}"
-  log "Origin does not have $BRANCH; creating a local git bundle fallback"
-  git -C "${REPO_ROOT}" bundle create "$BUNDLE_PATH" "$BRANCH" "^$BOOTSTRAP_BRANCH"
+  log "Origin does not have $BRANCH; creating a local git bundle fallback against $BUNDLE_BASE_REF"
+  git -C "${REPO_ROOT}" bundle create "$BUNDLE_PATH" "$BRANCH" "^$BUNDLE_BASE_REF"
 }
 
 verify_remote_access() {
