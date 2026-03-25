@@ -19,6 +19,8 @@ RUN_VERIFY=1
 BOOTSTRAP_VENV=1
 START_BACKGROUND_MODELS=1
 DRY_RUN=0
+BUNDLE_PATH=""
+REMOTE_BUNDLE_PATH=""
 
 usage() {
   cat <<'EOF'
@@ -133,6 +135,14 @@ require_cmd git
 ORIGIN_URL="$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || true)"
 [[ -n "$ORIGIN_URL" ]] || fail "Could not resolve origin URL from the local repo"
 
+cleanup_local_bundle() {
+  if [[ -n "$BUNDLE_PATH" && -f "$BUNDLE_PATH" ]]; then
+    rm -f "$BUNDLE_PATH"
+  fi
+}
+
+trap cleanup_local_bundle EXIT
+
 ssh_cmd() {
   ssh -F "$SSH_CONFIG" "$@"
 }
@@ -146,6 +156,18 @@ run_rsync() {
   "${cmd[@]}"
 }
 
+prepare_branch_bundle() {
+  if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local bundle_basename="baseline_${BRANCH//\//_}.bundle"
+  BUNDLE_PATH="$(mktemp "${TMPDIR:-/tmp}/${bundle_basename}.XXXXXX")"
+  REMOTE_BUNDLE_PATH="${DST_PARENT}/${bundle_basename}"
+  log "Origin does not have $BRANCH; creating a local git bundle fallback"
+  git -C "${REPO_ROOT}" bundle create "$BUNDLE_PATH" "$BRANCH" "^$BOOTSTRAP_BRANCH"
+}
+
 verify_remote_access() {
   log "Verifying remote VPN access to $DST_HOST"
   ssh_cmd "$DST_HOST" "hostname; whoami; pwd"
@@ -153,13 +175,14 @@ verify_remote_access() {
 
 remote_git_bootstrap() {
   log "Bootstrapping remote repo at $DST_ROOT"
-  ssh_cmd "$DST_HOST" bash -s -- "$DST_ROOT" "$DST_PARENT" "$ORIGIN_URL" "$BRANCH" "$BOOTSTRAP_BRANCH" <<'EOF'
+  ssh_cmd "$DST_HOST" bash -s -- "$DST_ROOT" "$DST_PARENT" "$ORIGIN_URL" "$BRANCH" "$BOOTSTRAP_BRANCH" "$REMOTE_BUNDLE_PATH" <<'EOF'
 set -euo pipefail
 dst_root="$1"
 dst_parent="$2"
 origin_url="$3"
 branch="$4"
 bootstrap_branch="$5"
+bundle_path="$6"
 
 mkdir -p "$dst_parent"
 
@@ -184,6 +207,9 @@ git fetch origin --prune
 target_branch="$bootstrap_branch"
 if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
   target_branch="$branch"
+elif [[ -n "$bundle_path" && -f "$bundle_path" ]]; then
+  git fetch "$bundle_path" "refs/heads/$branch:refs/heads/$branch"
+  target_branch="$branch"
 fi
 
 if git show-ref --verify --quiet "refs/heads/$target_branch"; then
@@ -192,10 +218,10 @@ else
   git checkout -B "$target_branch" "origin/$target_branch"
 fi
 
-if git diff --quiet && git diff --cached --quiet && [[ -z "$(git ls-files --others --exclude-standard)" ]]; then
+if git diff --quiet && git diff --cached --quiet && [[ -z "$(git ls-files --others --exclude-standard)" ]] && git show-ref --verify --quiet "refs/remotes/origin/$target_branch"; then
   git pull --ff-only origin "$target_branch"
 else
-  echo "[remote-git][warn] working tree is dirty; skipped fast-forward pull"
+  echo "[remote-git][warn] skipped fast-forward pull for $target_branch"
 fi
 
 if [[ "$target_branch" != "$branch" ]]; then
@@ -205,6 +231,17 @@ fi
 printf '[remote-git] repo=%s\n' "$(pwd)"
 printf '[remote-git] branch=%s\n' "$(git branch --show-current)"
 EOF
+}
+
+stage_branch_bundle() {
+  [[ -n "$BUNDLE_PATH" ]] || return 0
+  log "Uploading branch bundle fallback to $DST_HOST:$REMOTE_BUNDLE_PATH"
+  run_rsync "$BUNDLE_PATH" "$DST_HOST:$REMOTE_BUNDLE_PATH"
+}
+
+cleanup_remote_bundle() {
+  [[ -n "$REMOTE_BUNDLE_PATH" ]] || return 0
+  ssh_cmd "$DST_HOST" "rm -f '$REMOTE_BUNDLE_PATH'"
 }
 
 sync_overlay() {
@@ -297,8 +334,11 @@ log "Remote repo: $DST_HOST:$DST_ROOT"
 log "Remote cache root: $CACHE_ROOT"
 log "Remote branch preference: $BRANCH (bootstrap: $BOOTSTRAP_BRANCH)"
 
+prepare_branch_bundle
 verify_remote_access
+stage_branch_bundle
 remote_git_bootstrap
+cleanup_remote_bundle
 
 if (( DRY_RUN )); then
   log "Dry-run enabled; skipping rsync overlay and remote mutations after bootstrap"
