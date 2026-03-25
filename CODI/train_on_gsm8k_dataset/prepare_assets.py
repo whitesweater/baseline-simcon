@@ -53,6 +53,8 @@ DATASET_SPECS = {
     "asdiv": {"hf_id": "EleutherAI/asdiv", "split": "validation"},
 }
 
+MODEL_DOWNLOAD_IGNORE_PATTERNS = ["original/*.pth"]
+
 
 def model_is_ready(model_dir: Path) -> bool:
     required = model_dir / "config.json"
@@ -170,7 +172,13 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
     if backend == "modelscope":
         repo_id = spec["modelscope_id"]
         print(f"[download] modelscope -> {repo_id} -> {download_dir}")
-        ms_snapshot_download(model_id=repo_id, local_dir=str(download_dir), local_files_only=False)
+        ms_snapshot_download(
+            model_id=repo_id,
+            local_dir=str(download_dir),
+            local_files_only=False,
+            ignore_file_pattern=MODEL_DOWNLOAD_IGNORE_PATTERNS,
+            ignore_patterns=MODEL_DOWNLOAD_IGNORE_PATTERNS,
+        )
     elif backend in {"hf-mirror", "hf"}:
         repo_id = spec["hf_id"]
         endpoint = os.environ.get("HF_ENDPOINT") if backend == "hf-mirror" else None
@@ -183,6 +191,7 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
             token=token,
             local_dir_use_symlinks=False,
             resume_download=True,
+            ignore_patterns=MODEL_DOWNLOAD_IGNORE_PATTERNS,
         )
     else:
         raise ValueError(f"Unsupported backend: {backend}")
