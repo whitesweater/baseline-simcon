@@ -58,12 +58,24 @@ def model_is_ready(model_dir: Path) -> bool:
     required = model_dir / "config.json"
     if not required.exists():
         return False
-    candidates = [
-        model_dir / "model.safetensors",
-        model_dir / "model.safetensors.index.json",
-        model_dir / "pytorch_model.bin",
-    ]
-    return any(path.exists() for path in candidates)
+    if (model_dir / "model.safetensors").exists():
+        return True
+    if (model_dir / "pytorch_model.bin").exists():
+        return True
+
+    index_path = model_dir / "model.safetensors.index.json"
+    if not index_path.exists():
+        return False
+
+    try:
+        index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    shard_names = sorted(set((index_payload.get("weight_map") or {}).values()))
+    if not shard_names:
+        return False
+    return all((model_dir / shard_name).exists() for shard_name in shard_names)
 
 
 def ensure_parent(path: Path) -> None:
