@@ -213,6 +213,11 @@ SIRCL 在本项目中的定位是：
 - `CODI/train_on_gsm8k_dataset/train_qwen3.sh`
 - `CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
+这些 `train_*.sh` 当前默认每次只训练一条方法线：
+
+- 默认：`simcon`
+- 显式传参后可切换到：`simcon_sircl`
+
 与历史 `CODI/scripts/*.sh` 相比，这套入口额外做了几件事：
 
 - 单独隔离模型、cache、logs、results、manifests

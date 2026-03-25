@@ -8,7 +8,7 @@ source "${SCRIPT_DIR}/env.sh"
 source "${CODI_VENV_PATH}" || { echo "Error: CODI_VENV_PATH is invalid: ${CODI_VENV_PATH}"; exit 1; }
 
 MODELS=(llama1b llama3b llama8b qwen3)
-DATASETS=(gsm8k math500 aime)
+DATASETS=(gsm8k math500 aime svamp gsm-hard asdiv)
 INCLUDE_DATASETS=true
 FORCE_DATASETS=false
 REQUIRED_ICOT_CACHE="dataset_icot_0a5b3650760a22ea.pt"
@@ -172,7 +172,14 @@ Next commands:
   bash CODI/train_on_gsm8k_dataset/train_llama8b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3.sh
 
-After llama1b training:
+These training scripts now auto-scan all saved checkpoints on:
+  ${DATASETS[*]}
+
+Each train_* script runs one variant at a time:
+  default: simcon
+  pass --sircl or --variant simcon_sircl for simcon_sircl
+
+Manual single-checkpoint eval fallback:
   bash CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh <ckpt_dir>
 
 EOF

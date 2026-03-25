@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC4 Docker VPN"
+  short_description: "Operate EasyConnect on the validated VPN host and verify the SOCKS5 proxy."
+  default_prompt: "Use $hpc4-docker-vpn to bootstrap or reuse the EasyConnect Docker container on the validated VPN host, verify the SOCKS5 proxy on 127.0.0.1:1080, and confirm that HPC4 login is reachable before any SSH or AIStudio work."

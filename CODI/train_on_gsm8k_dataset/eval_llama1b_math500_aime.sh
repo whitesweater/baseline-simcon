@@ -19,8 +19,13 @@ source "${CODI_VENV_PATH}" || { echo "Error: CODI_VENV_PATH is invalid: ${CODI_V
 bash "${SCRIPT_DIR}/prepare_assets.sh" --models llama1b --force-datasets
 
 export CODI_RESULT_DIR="${CODI_MULTIMODEL_RESULT_DIR}"
-RESULTS_DIR="${CODI_MULTIMODEL_RESULT_DIR}/llama1b_math500_aime"
 MODEL_PATH="${CODI_MM_LLAMA1B_PATH}"
+MODEL_MAX_LENGTH=512
+PRJ_DIM=2048
+NUM_LATENT=6
+EVAL_DATASETS="${CODI_POST_TRAIN_DATASETS:-gsm8k math500 aime svamp gsm-hard asdiv}"
+EVAL_BATCH_SIZE="${CODI_EVAL_BATCH_SIZE:-16}"
+RESULTS_DIR="${CODI_MULTIMODEL_RESULT_DIR}/manual_checkpoint_eval/llama1b"
 
 if [[ ! -f "${MODEL_PATH}/config.json" ]]; then
   echo "Model path is not ready: ${MODEL_PATH}"
@@ -30,25 +35,27 @@ fi
 
 mkdir -p "${RESULTS_DIR}"
 
+pushd "${CODI_DIR}" >/dev/null
 python "${CODI_DIR}/test_multi_dataset.py" \
   --model_name_or_path "${MODEL_PATH}" \
   --ckpt_dir "${CKPT_DIR}" \
-  --datasets "gsm8k math500 aime" \
+  --datasets "${EVAL_DATASETS}" \
   --num_runs 1 \
   --result_dir "${RESULTS_DIR}" \
   --seed 11 \
-  --model_max_length 512 \
+  --model_max_length "${MODEL_MAX_LENGTH}" \
   --bf16 \
   --lora_r 128 \
   --lora_alpha 32 \
   --lora_init \
-  --batch_size 16 \
+  --batch_size "${EVAL_BATCH_SIZE}" \
   --greedy True \
-  --num_latent 6 \
+  --num_latent "${NUM_LATENT}" \
   --use_prj True \
-  --prj_dim 2048 \
+  --prj_dim "${PRJ_DIM}" \
   --prj_no_ln False \
   --prj_dropout 0.0 \
   --inf_latent_iterations 6 \
   --remove_eos True \
   --use_lora True
+popd >/dev/null

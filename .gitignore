@@ -249,3 +249,5 @@ Coconut/wandb/latest-run
 CODI/SemCoT/
 CODI_rebuttal_runs/
 paper/
+*.zip
+/1

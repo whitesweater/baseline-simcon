@@ -25,6 +25,11 @@ CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果
 - `train_on_gsm8k_dataset/train_qwen3.sh`
 - `train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
+其中 4 个 `train_*.sh` 入口默认每次只训练一条线：
+
+- 默认：`simcon`
+- 传 `--sircl` 或 `--variant simcon_sircl`：`simcon_sircl`
+
 ## 目录
 
 - [项目架构](#项目架构)

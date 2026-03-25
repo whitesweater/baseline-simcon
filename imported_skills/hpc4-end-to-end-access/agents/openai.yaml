@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC4 End-To-End Access"
+  short_description: "Run the full VPN-to-HPC4 chain through the validated remote VPN host."
+  default_prompt: "Use $hpc4-end-to-end-access to reuse the validated VPN host, verify the EasyConnect SOCKS5 proxy, log in to HPC4, refresh the AIStudio NPU pool, present running containers, and connect to the chosen NPU container."

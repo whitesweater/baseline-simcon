@@ -10,6 +10,9 @@ from huggingface_hub import snapshot_download as hf_snapshot_download
 from modelscope import snapshot_download as ms_snapshot_download
 
 
+CODI_DIR = Path(__file__).resolve().parents[1]
+
+
 MODEL_SPECS = {
     "llama1b": {
         "dest_name": "Llama-3.2-1B-Instruct",
@@ -41,6 +44,13 @@ DATASET_SPECS = {
     "gsm8k": {"hf_id": "zen-E/GSM8k-Aug", "split": "test"},
     "math500": {"hf_id": "HuggingFaceH4/MATH-500", "split": "test"},
     "aime": {"hf_id": "HuggingFaceH4/aime_2024", "split": "train"},
+    "svamp": {
+        "local_path": "local_datasets/svamp/eval_42.json",
+        "hf_id": "ChilleD/SVAMP",
+        "split": "all",
+    },
+    "gsm-hard": {"hf_id": "juyoung-trl/gsm-hard", "split": "train"},
+    "asdiv": {"hf_id": "EleutherAI/asdiv", "split": "validation"},
 }
 
 
@@ -72,6 +82,35 @@ def remove_existing_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def resolve_local_dataset_path(local_path: str) -> Path:
+    dataset_path = Path(local_path).expanduser()
+    if not dataset_path.is_absolute():
+        dataset_path = CODI_DIR / dataset_path
+    return dataset_path
+
+
+def resolve_external_model_dir(dest_root: Path, local_model_dir: Path | None) -> Path | None:
+    if local_model_dir is None:
+        return None
+    try:
+        if local_model_dir.resolve(strict=False) == dest_root.resolve(strict=False):
+            return None
+    except OSError:
+        if local_model_dir == dest_root:
+            return None
+    return local_model_dir
+
+
+def ensure_stage_model_link(stage_model_dir: Path, ready_model_dir: Path) -> None:
+    if stage_model_dir.exists() or stage_model_dir.is_symlink():
+        if stage_model_dir.is_symlink():
+            current_target = stage_model_dir.resolve(strict=False)
+            if current_target == ready_model_dir.resolve(strict=False):
+                return
+        remove_existing_path(stage_model_dir)
+    os.symlink(ready_model_dir, stage_model_dir, target_is_directory=True)
+
+
 def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend: str) -> None:
     if model_key not in MODEL_SPECS:
         raise ValueError(f"Unknown model key: {model_key}")
@@ -91,11 +130,10 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
     local_env = spec.get("local_env")
     local_path_value = os.environ.get(local_env, "") if local_env else ""
     local_model_dir = Path(local_path_value).expanduser() if local_path_value else None
+    external_model_dir = resolve_external_model_dir(model_dir, local_model_dir)
     if local_model_dir and model_is_ready(local_model_dir):
-        if model_dir.exists() or model_dir.is_symlink():
-            remove_existing_path(model_dir)
         print(f"[link] local-existing -> {local_model_dir} -> {model_dir}")
-        os.symlink(local_model_dir, model_dir, target_is_directory=True)
+        ensure_stage_model_link(model_dir, local_model_dir)
         write_manifest(
             manifest_path,
             {
@@ -111,22 +149,24 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
     if local_model_dir:
         print(f"[warn] local model path is not ready, will continue with remote download: {local_model_dir}")
 
-    if model_dir.exists() and not model_dir.is_dir():
-        remove_existing_path(model_dir)
-    model_dir.mkdir(parents=True, exist_ok=True)
+    download_dir = external_model_dir or model_dir
+
+    if download_dir.exists() and not download_dir.is_dir():
+        remove_existing_path(download_dir)
+    download_dir.mkdir(parents=True, exist_ok=True)
 
     if backend == "modelscope":
         repo_id = spec["modelscope_id"]
-        print(f"[download] modelscope -> {repo_id} -> {model_dir}")
-        ms_snapshot_download(model_id=repo_id, local_dir=str(model_dir), local_files_only=False)
+        print(f"[download] modelscope -> {repo_id} -> {download_dir}")
+        ms_snapshot_download(model_id=repo_id, local_dir=str(download_dir), local_files_only=False)
     elif backend in {"hf-mirror", "hf"}:
         repo_id = spec["hf_id"]
         endpoint = os.environ.get("HF_ENDPOINT") if backend == "hf-mirror" else None
         token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-        print(f"[download] {backend} -> {repo_id} -> {model_dir}")
+        print(f"[download] {backend} -> {repo_id} -> {download_dir}")
         hf_snapshot_download(
             repo_id=repo_id,
-            local_dir=str(model_dir),
+            local_dir=str(download_dir),
             endpoint=endpoint,
             token=token,
             local_dir_use_symlinks=False,
@@ -135,28 +175,89 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
-    if not model_is_ready(model_dir):
-        raise RuntimeError(f"Model download did not produce a complete directory: {model_dir}")
+    if not model_is_ready(download_dir):
+        raise RuntimeError(f"Model download did not produce a complete directory: {download_dir}")
+
+    if external_model_dir:
+        print(f"[link] stage-model -> {download_dir} -> {model_dir}")
+        ensure_stage_model_link(model_dir, download_dir)
 
     write_manifest(
         manifest_path,
-        {"model_key": model_key, "backend": backend, "path": str(model_dir)},
+        {
+            "model_key": model_key,
+            "backend": backend,
+            "path": str(model_dir),
+            "download_path": str(download_dir),
+        },
     )
 
 
 def warm_dataset(dataset_key: str, manifest_root: Path | None = None) -> None:
     if dataset_key not in DATASET_SPECS:
         raise ValueError(f"Unknown dataset key: {dataset_key}")
+
     spec = DATASET_SPECS[dataset_key]
-    repo_id = spec["hf_id"]
+    manifest_payload = {"dataset_key": dataset_key}
+
+    local_path_value = spec.get("local_path")
+    if local_path_value:
+        local_path = resolve_local_dataset_path(local_path_value)
+        manifest_payload["local_path"] = str(local_path)
+        if local_path.exists():
+            print(f"[dataset] using local dataset for {dataset_key}: {local_path}")
+            if local_path.suffix.lower() == ".json":
+                with local_path.open("r", encoding="utf-8") as handle:
+                    json.load(handle)
+            manifest_payload["source"] = "local"
+            if manifest_root is not None:
+                write_manifest(manifest_root / f"{dataset_key}.manifest.json", manifest_payload)
+            return
+        print(f"[dataset] local dataset missing for {dataset_key}, fallback to Hugging Face: {local_path}")
+
+    repo_id = spec.get("hf_id")
+    if not repo_id:
+        raise RuntimeError(f"Dataset {dataset_key} has no available local path or Hugging Face source")
+
     split = spec.get("split")
+    hf_config = spec.get("hf_config")
     print(f"[dataset] warming cache for {dataset_key}: {repo_id} [{split}]")
-    load_dataset(repo_id, split=split)
-    if manifest_root is not None:
-        write_manifest(
-            manifest_root / f"{dataset_key}.manifest.json",
-            {"dataset_key": dataset_key, "hf_id": repo_id, "split": split},
+
+    if split == "all":
+        if hf_config:
+            dataset = load_dataset(repo_id, hf_config)
+        else:
+            dataset = load_dataset(repo_id)
+        available_splits = list(dataset.keys())
+        for split_name in available_splits:
+            len(dataset[split_name])
+        manifest_payload.update(
+            {
+                "source": "huggingface",
+                "hf_id": repo_id,
+                "split": split,
+                "available_splits": available_splits,
+            }
         )
+    else:
+        if hf_config:
+            dataset = load_dataset(repo_id, hf_config, split=split)
+        else:
+            dataset = load_dataset(repo_id, split=split)
+        len(dataset)
+        manifest_payload.update(
+            {
+                "source": "huggingface",
+                "hf_id": repo_id,
+                "split": split,
+            }
+        )
+
+    if hf_config:
+        manifest_payload["hf_config"] = hf_config
+
+    if manifest_root is not None:
+        write_manifest(manifest_root / f"{dataset_key}.manifest.json", manifest_payload)
 
 
 def parse_args():

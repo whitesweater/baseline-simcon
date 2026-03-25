@@ -9,8 +9,9 @@
 第一次接手时，建议按这个顺序读：
 
 1. [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)
-2. [`CODI/README.md`](CODI/README.md)
-3. [`CODI/TESTING_GUIDE.md`](CODI/TESTING_GUIDE.md)
+2. [`NEWCOMER_HANDOVER.md`](NEWCOMER_HANDOVER.md)
+3. [`CODI/README.md`](CODI/README.md)
+4. [`CODI/TESTING_GUIDE.md`](CODI/TESTING_GUIDE.md)
 
 如果要进入具体代码，再看：
 
@@ -18,6 +19,12 @@
 - `CODI/src/model.py`
 - `Coconut/run.py`
 - `CODI/train_on_gsm8k_dataset/`
+
+如果当前任务是迁移到 HPC2 并建立长期双机协作，优先看：
+
+- `NEWCOMER_HANDOVER.md`
+- `docs/HPC_REMOTE_VPN_ACCESS.md`
+- `scripts/migrate_baseline_hpc2_longterm.sh`
 
 ## 仓库结构
 
@@ -54,6 +61,9 @@ CODI_RESULT_DIR=${CODI_RUN_ROOT}/results
 - [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)
   - 仓库级总指南
   - 说明目录边界、方法映射、可信结果、实验口径、Git 规则和 rebuttal 默认策略
+- [`NEWCOMER_HANDOVER.md`](NEWCOMER_HANDOVER.md)
+  - 面向第一次接手者的导航式 handover
+  - 负责把现有文档、迁移脚本、当前主线入口串起来
 - [`CODI/README.md`](CODI/README.md)
   - CODI 子项目说明
   - 适合在明确要进入 CODI 训练与评测脚本后继续阅读
@@ -90,3 +100,11 @@ bash CODI/train_on_gsm8k_dataset/train_llama1b.sh
 其余 `llama3b`、`llama8b`、`qwen3` 和 `llama1b` 额外评测入口，也都统一放在 `CODI/train_on_gsm8k_dataset/`。
 
 如果后续 reviewer / rebuttal 任务清单有单独文件，它也应与本仓库文档一起作为正式输入。
+
+如果要把当前工作区迁到 HPC2 固定目录 `/hpc2hdd/home/yhao481/jhupload/proj/baseline`，现在推荐直接执行：
+
+```bash
+bash scripts/migrate_baseline_hpc2_longterm.sh
+```
+
+这条脚本会走当前已验证的 `hpc2-vpn` 入口，按 “Git bootstrap + rsync 覆盖 dirty/untracked 状态 + HPC2 本地化 + uv 建环境 + 后台模型下载” 的长期协作方案落地。
