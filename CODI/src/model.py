@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import random
+import types
 from dataclasses import dataclass, field
 from typing import Optional
 from peft import (
@@ -27,6 +28,14 @@ from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
 from src.rank_diversity import RankDiversityLoss
 from torch.profiler import record_function
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+# PEFT 0.18.x assumes torch.distributed.tensor.DTensor exists when distributed
+# support is present. Some HPC torch builds omit that submodule entirely, which
+# makes LoRA injection crash before training starts. Provide a tiny stub so the
+# isinstance check simply evaluates to False on those builds.
+if hasattr(torch, "distributed") and not hasattr(torch.distributed, "tensor"):
+    torch.distributed.tensor = types.SimpleNamespace(DTensor=type("DTensor", (), {}))
 
 
 @dataclass
@@ -898,4 +907,3 @@ class CODI(torch.nn.Module):
             return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "explain_loss": explain_loss_total, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total, "rank_diversity_loss": rank_diversity_loss_total}
         else:
             return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total, "rank_diversity_loss": rank_diversity_loss_total}
-

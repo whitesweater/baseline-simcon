@@ -6,8 +6,6 @@ import shutil
 from pathlib import Path
 
 from datasets import load_dataset
-from huggingface_hub import snapshot_download as hf_snapshot_download
-from modelscope import snapshot_download as ms_snapshot_download
 
 
 CODI_DIR = Path(__file__).resolve().parents[1]
@@ -54,6 +52,27 @@ DATASET_SPECS = {
 }
 
 MODEL_DOWNLOAD_IGNORE_PATTERNS = ["original/*.pth"]
+
+
+def get_ms_snapshot_download():
+    try:
+        from modelscope import snapshot_download as ms_snapshot_download
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Backend 'modelscope' requires the 'modelscope' package. "
+            "Install it in the active environment or retry with hf-mirror/hf."
+        ) from exc
+    return ms_snapshot_download
+
+
+def get_hf_snapshot_download():
+    try:
+        from huggingface_hub import snapshot_download as hf_snapshot_download
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Backends 'hf-mirror' and 'hf' require the 'huggingface_hub' package."
+        ) from exc
+    return hf_snapshot_download
 
 
 def model_is_ready(model_dir: Path) -> bool:
@@ -172,6 +191,7 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
     if backend == "modelscope":
         repo_id = spec["modelscope_id"]
         print(f"[download] modelscope -> {repo_id} -> {download_dir}")
+        ms_snapshot_download = get_ms_snapshot_download()
         ms_snapshot_download(
             model_id=repo_id,
             local_dir=str(download_dir),
@@ -184,6 +204,7 @@ def download_model(model_key: str, dest_root: Path, manifest_root: Path, backend
         endpoint = os.environ.get("HF_ENDPOINT") if backend == "hf-mirror" else None
         token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
         print(f"[download] {backend} -> {repo_id} -> {download_dir}")
+        hf_snapshot_download = get_hf_snapshot_download()
         hf_snapshot_download(
             repo_id=repo_id,
             local_dir=str(download_dir),
