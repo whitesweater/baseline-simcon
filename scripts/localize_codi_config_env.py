@@ -51,8 +51,8 @@ def main() -> int:
     parser.add_argument("--cache-root", default=str(DEFAULT_HPC2_CACHE_ROOT))
     args = parser.parse_args()
 
-    repo_root = Path(args.repo_root).expanduser().resolve()
-    cache_root = Path(args.cache_root).expanduser().resolve()
+    repo_root = Path(args.repo_root).expanduser()
+    cache_root = Path(args.cache_root).expanduser()
     config_path = repo_root / "CODI" / "config.env"
 
     if not config_path.is_file():
