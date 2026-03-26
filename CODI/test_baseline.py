@@ -21,6 +21,7 @@ from datetime import datetime
 import torch
 import transformers
 from datasets import load_dataset, concatenate_datasets
+from src.tokenizer_utils import load_tokenizer_with_fallback
 from tqdm import tqdm
 
 
@@ -193,7 +194,7 @@ def main():
     print(f"加载模型: {args.model_path}")
     print(f"{'='*60}")
     
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = load_tokenizer_with_fallback(
         args.model_path,
         padding_side="left",
         use_fast=False,

@@ -25,6 +25,7 @@ from src.trajectory_acceleration import TrajectoryAccelerationLoss
 from src.trajectory_action import TrajectoryActionLoss
 from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
 from src.rank_diversity import RankDiversityLoss
+from src.tokenizer_utils import load_tokenizer_with_fallback
 from torch.profiler import record_function
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -397,7 +398,7 @@ class CODI(torch.nn.Module):
 
         self.dim = self.codi.config.hidden_size
         self.num_latent = training_args.num_latent
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=False)
+        self.tokenizer = load_tokenizer_with_fallback(self.model_name, use_fast=False)
 
         # LoRA
         if training_args.use_lora:

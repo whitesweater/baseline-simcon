@@ -39,6 +39,7 @@ from src.model import (
     DataArguments,
     TrainingArguments,
 )
+from src.tokenizer_utils import load_tokenizer_with_fallback
 
 do_print = True
 probe_topk = 5
@@ -82,7 +83,7 @@ def evaluation(model_args, data_args, training_args):
     model.codi.tie_weights()
     
     tokenizer_path = model_args.model_name_or_path 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = load_tokenizer_with_fallback(
         tokenizer_path,
         token=model_args.token,
         model_max_length=training_args.model_max_length,

@@ -44,6 +44,7 @@ from src.trajectory_consistency import TrajectoryConsistencyLoss
 from src.trajectory_acceleration import TrajectoryAccelerationLoss
 from src.trajectory_action import TrajectoryActionLoss
 from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
+from src.tokenizer_utils import load_tokenizer_with_fallback
 
 
 # ============================================================
@@ -1136,7 +1137,7 @@ class MultiDatasetEvaluator:
         self.model.codi.tie_weights()
         
         # 加载 tokenizer
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+        self.tokenizer = load_tokenizer_with_fallback(
             self.model_args.model_name_or_path,
             token=self.model_args.token,
             model_max_length=self.training_args.model_max_length,

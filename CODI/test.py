@@ -42,6 +42,7 @@ from src.trajectory_consistency import TrajectoryConsistencyLoss
 from src.trajectory_acceleration import TrajectoryAccelerationLoss
 from src.trajectory_action import TrajectoryActionLoss
 from src.trajectory_geodesic import TrajectoryGeodesicDeviationLoss
+from src.tokenizer_utils import load_tokenizer_with_fallback
 
 # ============================================================
 # 环境配置：优先从环境变量读取路径
@@ -288,7 +289,7 @@ def evaluation(model_args, data_args, training_args):
     tokenizer_path = model_args.model_name_or_path 
     # tokenizer_path = '/mnt/shared-storage-user/mllm/shared/weixilin/gpt2'
     print("[Eval] Loading tokenizer...")
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = load_tokenizer_with_fallback(
         tokenizer_path,
         token=model_args.token,
         model_max_length=training_args.model_max_length,

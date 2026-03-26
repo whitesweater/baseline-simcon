@@ -27,6 +27,7 @@ from src.model import (
     TrainingArguments,
     freeze_model
 )
+from src.tokenizer_utils import load_tokenizer_with_fallback
 import json
 
 
@@ -302,7 +303,7 @@ def train():
 
     # import pdb; pdb.set_trace()
     model = CODI(model_args, training_args, lora_config)
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = load_tokenizer_with_fallback(
             model_args.model_name_or_path,
             token=model_args.token,
             cache_dir=training_args.cache_dir,
