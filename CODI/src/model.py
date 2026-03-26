@@ -171,6 +171,21 @@ def freeze_model(model):
     for _, param in model.named_parameters():
         param.requires_grad = False
 
+def _single_token_id(tokenizer, text: str) -> Optional[int]:
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    if len(token_ids) == 1:
+        return token_ids[0]
+    return None
+
+
+def _marker_token_ids(tokenizer, texts: Iterable[str]) -> tuple[int, ...]:
+    marker_ids: List[int] = []
+    for text in texts:
+        token_id = _single_token_id(tokenizer, text)
+        if token_id is not None and token_id not in marker_ids:
+            marker_ids.append(token_id)
+    return tuple(marker_ids)
+
 def get_steps(
     ref_input_ids: Union[torch.Tensor, Sequence[Sequence[int]]],
     latent_num: int = 2,
@@ -359,7 +374,7 @@ class CODI(torch.nn.Module):
                         # use_flash_attention_2=False,
                         resume_download=True,
                     )
-        
+
         # import pdb; pdb.set_trace()
 
         # saved_weights = torch.load(
@@ -474,8 +489,75 @@ class CODI(torch.nn.Module):
             self.tokenizer.add_special_tokens({'pad_token': '[PAD]'})
             self.tokenizer.pad_token_id = self.pad_token_id
 
+        self.step_start_ids, self.step_end_id = self._resolve_step_marker_ids()
+        self.step_stop_ids = tuple(
+            token_id
+            for token_id in (self.tokenizer.eos_token_id, self.tokenizer.pad_token_id)
+            if token_id is not None
+        )
+
         if self.training:
             self.init()
+
+    def _gradient_checkpointing_modules(self):
+        modules = [self.codi]
+        if getattr(self.model_args, "use_decoder", False) and hasattr(self, "decoder"):
+            modules.append(self.decoder)
+        return modules
+
+    @property
+    def is_gradient_checkpointing(self) -> bool:
+        return any(
+            bool(getattr(module, "is_gradient_checkpointing", False))
+            for module in self._gradient_checkpointing_modules()
+        )
+
+    def _gradient_checkpointing_kwargs(self, gradient_checkpointing_kwargs=None):
+        kwargs = dict(gradient_checkpointing_kwargs or {})
+        env_value = os.environ.get("CODI_GC_USE_REENTRANT")
+        if env_value is None:
+            kwargs.setdefault("use_reentrant", False)
+        else:
+            kwargs["use_reentrant"] = env_value.lower() in {"1", "true", "yes", "on"}
+        return kwargs
+
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
+        resolved_kwargs = self._gradient_checkpointing_kwargs(gradient_checkpointing_kwargs)
+        enabled = False
+        for module in self._gradient_checkpointing_modules():
+            if hasattr(module, "gradient_checkpointing_enable"):
+                module.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs=resolved_kwargs
+                )
+                if hasattr(module, "enable_input_require_grads"):
+                    module.enable_input_require_grads()
+                enabled = True
+        if not enabled:
+            raise AttributeError("No wrapped module supports gradient checkpointing")
+        return self
+
+    def gradient_checkpointing_disable(self):
+        for module in self._gradient_checkpointing_modules():
+            if hasattr(module, "gradient_checkpointing_disable"):
+                module.gradient_checkpointing_disable()
+        return self
+
+    def _resolve_step_marker_ids(self):
+        start_ids = _marker_token_ids(self.tokenizer, ("<<", " <<"))
+        end_id = _single_token_id(self.tokenizer, ">>")
+        if start_ids and end_id is not None:
+            return start_ids, end_id
+
+        model_name = self.model_name.lower()
+        if "gpt" in model_name:
+            return (16791, 9959), 4211
+        if "llama" in model_name:
+            return (2501, 1134), 2511
+
+        raise ValueError(
+            "Could not resolve single-token step markers for model "
+            f"{self.model_name}. Expected tokenizer support for '<<' and '>>'."
+        )
 
     def get_embd(self, model, model_name):
         try:
@@ -537,20 +619,16 @@ class CODI(torch.nn.Module):
             forward_idx = 0
             explain_loss_total = 0.0
             effective_steps_cnt = 0
-            if 'llama' in self.model_args.model_name_or_path.lower():
-                steps_list = get_steps(ref_input_ids, self.num_latent+1)
-                steps_pad_list = pad_steps(steps_list)
-                # import pdb; pdb.set_trace()
-                # print()
-                # steps_list = pad_steps(steps_list)
-            elif 'gpt' in self.model_args.model_name_or_path.lower():
-                steps_list = get_steps(ref_input_ids, self.num_latent+1, start_ids=(16791, 9959), end_id=4211, 
-                                       eot_id=self.tokenizer.eos_token_id, pad_id=self.tokenizer.pad_token_id, 
-                                       stop_ids=(self.tokenizer.eos_token_id, self.tokenizer.pad_token_id))
-                steps_pad_list = pad_steps(steps_list, pad_id=self.tokenizer.pad_token_id)
-
-            else:
-                raise ValueError("no implementaion")
+            steps_list = get_steps(
+                ref_input_ids,
+                self.num_latent + 1,
+                start_ids=self.step_start_ids,
+                end_id=self.step_end_id,
+                eot_id=self.tokenizer.eos_token_id,
+                pad_id=self.tokenizer.pad_token_id,
+                stop_ids=self.step_stop_ids,
+            )
+            steps_pad_list = pad_steps(steps_list, pad_id=self.tokenizer.pad_token_id)
         
         if self.use_prj:
             with autocast("cuda",dtype=torch.bfloat16, enabled=True):
