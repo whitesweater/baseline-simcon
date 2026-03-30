@@ -15,6 +15,22 @@ FORCE_SINGLE_GPU=0
 PER_DEVICE_BATCH_OVERRIDE=""
 GRAD_ACC_OVERRIDE=""
 NUM_EPOCHS_OVERRIDE=""
+
+is_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_hpc2_runtime() {
+  [[ "${BASELINE_ROOT:-}" == /hpc2hdd/home/*/jhupload/proj/* ]] || \
+    [[ "${CODI_VENV_PATH:-}" == /hpc2ssd/JH_DATA/spooler/* ]]
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --sircl)
@@ -83,6 +99,25 @@ SEED=11
 MODEL_MAX_LENGTH=512
 PER_DEVICE_BATCH_DEFAULT=16
 GRAD_ACC_DEFAULT=1
+SAVE_STRATEGY_DEFAULT="epoch"
+SAVE_STEPS_DEFAULT=100
+
+HPC2_SAFE_MODE_DEFAULT=0
+if is_hpc2_runtime; then
+  HPC2_SAFE_MODE_DEFAULT=1
+fi
+HPC2_SAFE_MODE="${CODI_LLAMA3B_HPC2_SAFE_MODE:-${HPC2_SAFE_MODE_DEFAULT}}"
+
+if is_truthy "${HPC2_SAFE_MODE}"; then
+  # The validated HPC2 container hit an OOM around step 946 with per-device batch 16.
+  # Keep the same effective global batch by halving the device batch and doubling grad accumulation.
+  PER_DEVICE_BATCH_DEFAULT=8
+  GRAD_ACC_DEFAULT=2
+  SAVE_STRATEGY_DEFAULT="steps"
+  SAVE_STEPS_DEFAULT=250
+  export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+fi
+
 PER_DEVICE_BATCH="${PER_DEVICE_BATCH_OVERRIDE:-${CODI_PER_DEVICE_BATCH:-${PER_DEVICE_BATCH_DEFAULT}}}"
 GRAD_ACC="${GRAD_ACC_OVERRIDE:-${CODI_GRAD_ACC:-${GRAD_ACC_DEFAULT}}}"
 NUM_EPOCHS_DEFAULT=10
@@ -91,9 +126,9 @@ LEARNING_RATE=0.0003
 PRJ_DIM=3072
 NUM_LATENT=6
 PRINT_REF_MODEL_STATS=True
-SAVE_STRATEGY="${CODI_SAVE_STRATEGY:-epoch}"
+SAVE_STRATEGY="${CODI_SAVE_STRATEGY:-${SAVE_STRATEGY_DEFAULT}}"
 SAVE_TOTAL_LIMIT="${CODI_SAVE_TOTAL_LIMIT:-${NUM_EPOCHS}}"
-SAVE_STEPS="${CODI_SAVE_STEPS:-100}"
+SAVE_STEPS="${CODI_SAVE_STEPS:-${SAVE_STEPS_DEFAULT}}"
 POST_TRAIN_EVAL="${CODI_POST_TRAIN_EVAL:-1}"
 POST_TRAIN_DATASETS="${CODI_POST_TRAIN_DATASETS:-gsm8k math500 aime svamp gsm-hard asdiv}"
 DEFAULT_EVAL_BATCH_SIZE=8
@@ -126,12 +161,6 @@ GLOBAL_BATCH_EFFECTIVE=$((PER_DEVICE_BATCH * NPROC_PER_NODE * GRAD_ACC_EFFECTIVE
 
 if [[ ! -f "${MODEL_PATH}/config.json" ]]; then
   echo "Model path is not ready: ${MODEL_PATH}"
-  echo "Run: bash CODI/train_on_gsm8k_dataset/prepare_assets.sh --models llama3b --force-datasets"
-  exit 1
-fi
-
-if [[ ! -f "${CODI_MULTIMODEL_ICOT_CACHE_DIR}/dataset_icot_0a5b3650760a22ea.pt" ]]; then
-  echo "Required icot cache is missing under: ${CODI_MULTIMODEL_ICOT_CACHE_DIR}"
   echo "Run: bash CODI/train_on_gsm8k_dataset/prepare_assets.sh --models llama3b --force-datasets"
   exit 1
 fi
@@ -294,11 +323,13 @@ run_variant() {
   echo "Num epochs            : ${NUM_EPOCHS}"
   echo "Global batch effective: ${GLOBAL_BATCH_EFFECTIVE}"
   echo "Master port           : ${master_port}"
+  echo "HPC2 safe mode        : ${HPC2_SAFE_MODE}"
   echo "Use decoder           : True"
   echo "Use trajectory        : ${use_trajectory}"
   echo "Save strategy         : ${SAVE_STRATEGY}"
   echo "Save total limit      : ${SAVE_TOTAL_LIMIT}"
   echo "Save steps            : ${SAVE_STEPS} (used when strategy=steps)"
+  echo "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-<unset>}"
   echo "Post-train datasets   : ${POST_TRAIN_DATASETS}"
   echo "Checkpoint root       : ${checkpoint_root}"
   echo "Sweep result dir      : ${sweep_result_dir}"

@@ -34,8 +34,11 @@ export HF_HOME="${HF_HOME:-${CODI_MULTIMODEL_HF_HOME}}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${CODI_MULTIMODEL_HF_DATASETS_CACHE}}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${CODI_MULTIMODEL_HF_HOME}/transformers}"
 export MODELSCOPE_CACHE="${MODELSCOPE_CACHE:-${CODI_MULTIMODEL_MODELSCOPE_CACHE}}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+export CODI_GSM8K_AUG_HF_ID="${CODI_GSM8K_AUG_HF_ID:-zen-E/GSM8k-Aug}"
+export CODI_GSM8K_AUG_CACHE_DIR="${CODI_GSM8K_AUG_CACHE_DIR:-/data/yhao/hf_datasets_cache}"
 
-# Stage-specific copied icot cache, so training does not touch the historical cache tree.
+# Legacy dataset-cache paths are kept for compatibility with older scripts.
 export CODI_MULTIMODEL_ICOT_CACHE_DIR="${CODI_MULTIMODEL_CACHE_DIR}/dataset_cache"
 export CODI_MULTIMODEL_SOURCE_CACHE_DIR="${CODI_CACHE_DIR:-/data/yhao/sim-con/CODI/cache}"
 
@@ -55,5 +58,6 @@ mkdir -p \
   "${CODI_MULTIMODEL_ICOT_CACHE_DIR}" \
   "${HF_HOME}" \
   "${HF_DATASETS_CACHE}" \
+  "${CODI_GSM8K_AUG_CACHE_DIR}" \
   "${TRANSFORMERS_CACHE}" \
   "${MODELSCOPE_CACHE}"

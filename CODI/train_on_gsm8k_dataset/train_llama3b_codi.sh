@@ -5,20 +5,36 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODI_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck disable=SC1091
 source "${CODI_DIR}/config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
+USER_HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-}"
+USER_HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-}"
+USER_HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/env.sh"
 # shellcheck disable=SC1091
 source "${CODI_VENV_PATH}" || { echo "Error: CODI_VENV_PATH is invalid: ${CODI_VENV_PATH}"; exit 1; }
 
-VARIANT="${CODI_METHOD_VARIANT:-simcon}"
+VARIANT="${CODI_METHOD_VARIANT:-codi}"
 FORCE_SINGLE_GPU=0
 PER_DEVICE_BATCH_OVERRIDE=""
 GRAD_ACC_OVERRIDE=""
 NUM_EPOCHS_OVERRIDE=""
+DEFAULT_SHARED_DATASET_CACHE=""
+
+is_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --sircl)
-      VARIANT="simcon_sircl"
+      VARIANT="codi_sircl"
       shift
       ;;
     --single-gpu)
@@ -51,7 +67,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --variant)
       if [[ $# -lt 2 ]]; then
-        echo "Error: --variant requires a value: simcon or simcon_sircl"
+        echo "Error: --variant requires a value: codi or codi_sircl"
         exit 1
       fi
       VARIANT="$2"
@@ -59,13 +75,23 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--sircl] [--single-gpu] [--per-device-batch N] [--grad-acc N] [--epochs N] [--variant simcon|simcon_sircl]"
+      echo "Usage: $0 [--sircl] [--single-gpu] [--per-device-batch N] [--grad-acc N] [--epochs N] [--variant codi|codi_sircl]"
       exit 1
       ;;
   esac
 done
 
-bash "${SCRIPT_DIR}/prepare_assets.sh" --models llama8b --force-datasets
+DEFAULT_SHARED_DATASET_CACHE="${CODI_RUN_ROOT}/multimodel_gsm8k_math500_aime_v1/hf_datasets_cache"
+export CODI_GSM8K_AUG_CACHE_DIR="${CODI_GSM8K_AUG_CACHE_DIR:-/data/yhao/hf_datasets_cache}"
+if [[ -z "${USER_HF_DATASETS_CACHE}" && -d "${DEFAULT_SHARED_DATASET_CACHE}" ]]; then
+  export HF_DATASETS_CACHE="${DEFAULT_SHARED_DATASET_CACHE}"
+fi
+if [[ -n "${HF_DATASETS_CACHE:-}" && -d "${HF_DATASETS_CACHE}" ]]; then
+  export HF_HUB_OFFLINE="${USER_HF_HUB_OFFLINE:-1}"
+  export HF_DATASETS_OFFLINE="${USER_HF_DATASETS_OFFLINE:-1}"
+fi
+
+bash "${SCRIPT_DIR}/prepare_assets.sh" --models llama3b --force-datasets
 
 export CODI_SAVE_DIR="${CODI_MULTIMODEL_SAVE_DIR}"
 export CODI_RESULT_DIR="${CODI_MULTIMODEL_RESULT_DIR}"
@@ -74,35 +100,43 @@ export CODI_CACHE_DIR="${CODI_MULTIMODEL_CACHE_DIR}"
 NNODES="${CODI_TRAIN_NNODES:-1}"
 NPROC_PER_NODE="${CODI_TRAIN_NPROC_PER_NODE:-4}"
 TARGET_NPROC_PER_NODE="${CODI_TARGET_NPROC_PER_NODE:-4}"
-BASE_MASTER_PORT="${MASTER_PORT:-22505}"
-SIRCL_MASTER_PORT="${CODI_SIRCL_MASTER_PORT:-22506}"
-MODEL_PATH="${CODI_MM_LLAMA8B_PATH}"
+BASE_MASTER_PORT="${MASTER_PORT:-22513}"
+SIRCL_MASTER_PORT="${CODI_SIRCL_MASTER_PORT:-22514}"
+MODEL_PATH="${CODI_MM_LLAMA3B_PATH}"
 MODEL_NAME="${MODEL_PATH##*/}"
-EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_llama31_8b"
+EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_llama3b"
 SEED=11
 MODEL_MAX_LENGTH=512
-PER_DEVICE_BATCH_DEFAULT=1
-GRAD_ACC_DEFAULT=16
-PER_DEVICE_BATCH="${PER_DEVICE_BATCH_OVERRIDE:-${CODI_PER_DEVICE_BATCH:-${PER_DEVICE_BATCH_DEFAULT}}}"
-GRAD_ACC="${GRAD_ACC_OVERRIDE:-${CODI_GRAD_ACC:-${GRAD_ACC_DEFAULT}}}"
-NUM_EPOCHS_DEFAULT=8
-NUM_EPOCHS="${NUM_EPOCHS_OVERRIDE:-${CODI_NUM_EPOCHS:-${NUM_EPOCHS_DEFAULT}}}"
-LEARNING_RATE=0.0001
-PRJ_DIM=4096
+PER_DEVICE_BATCH_DEFAULT=16
+GRAD_ACC_DEFAULT=1
+NUM_EPOCHS_DEFAULT=10
+LEARNING_RATE=0.0008
+PRJ_DIM=2048
 NUM_LATENT=6
-MAX_TOKEN_NUM=200
 PRINT_REF_MODEL_STATS=True
 SAVE_STRATEGY="${CODI_SAVE_STRATEGY:-epoch}"
-SAVE_TOTAL_LIMIT="${CODI_SAVE_TOTAL_LIMIT:-${NUM_EPOCHS}}"
+SAVE_TOTAL_LIMIT="${CODI_SAVE_TOTAL_LIMIT:-20}"
 SAVE_STEPS="${CODI_SAVE_STEPS:-100}"
 POST_TRAIN_EVAL="${CODI_POST_TRAIN_EVAL:-1}"
 POST_TRAIN_DATASETS="${CODI_POST_TRAIN_DATASETS:-gsm8k math500 aime svamp gsm-hard asdiv}"
-DEFAULT_EVAL_BATCH_SIZE=4
+DEFAULT_EVAL_BATCH_SIZE=8
 EVAL_BATCH_SIZE="${CODI_EVAL_BATCH_SIZE:-${DEFAULT_EVAL_BATCH_SIZE}}"
 SIRCL_SPACE_TYPE="${CODI_SIRCL_SPACE_TYPE:-euclidean}"
 SIRCL_RADIUS_THRESHOLD="${CODI_SIRCL_RADIUS_THRESHOLD:-2}"
 SIRCL_LOSS_FACTOR="${CODI_SIRCL_LOSS_FACTOR:-0.1}"
-DDP_FIND_UNUSED_PARAMETERS=False
+
+# if [[ "${VARIANT}" == "codi_sircl" ]]; then
+#   # Keep the same effective global batch as the previous 32x1 setup.
+#   PER_DEVICE_BATCH_DEFAULT=32
+#   GRAD_ACC_DEFAULT=1
+# fi
+
+export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-${PYTORCH_ALLOC_CONF}}"
+
+PER_DEVICE_BATCH="${PER_DEVICE_BATCH_OVERRIDE:-${CODI_PER_DEVICE_BATCH:-${PER_DEVICE_BATCH_DEFAULT}}}"
+GRAD_ACC="${GRAD_ACC_OVERRIDE:-${CODI_GRAD_ACC:-${GRAD_ACC_DEFAULT}}}"
+NUM_EPOCHS="${NUM_EPOCHS_OVERRIDE:-${CODI_NUM_EPOCHS:-${NUM_EPOCHS_DEFAULT}}}"
 
 if [[ "${FORCE_SINGLE_GPU}" == "1" ]]; then
   NPROC_PER_NODE=1
@@ -113,13 +147,8 @@ if (( TARGET_NPROC_PER_NODE <= 0 || NPROC_PER_NODE <= 0 )); then
   exit 1
 fi
 
-if (( PER_DEVICE_BATCH <= 0 || GRAD_ACC <= 0 || NUM_EPOCHS <= 0 || NUM_LATENT <= 0 )); then
-  echo "Invalid train config: PER_DEVICE_BATCH=${PER_DEVICE_BATCH}, GRAD_ACC=${GRAD_ACC}, NUM_EPOCHS=${NUM_EPOCHS}, NUM_LATENT=${NUM_LATENT}"
-  exit 1
-fi
-
-if (( MAX_TOKEN_NUM <= 0 )); then
-  echo "Invalid max token config: MAX_TOKEN_NUM=${MAX_TOKEN_NUM}"
+if (( PER_DEVICE_BATCH <= 0 || GRAD_ACC <= 0 || NUM_EPOCHS <= 0 )); then
+  echo "Invalid train config: PER_DEVICE_BATCH=${PER_DEVICE_BATCH}, GRAD_ACC=${GRAD_ACC}, NUM_EPOCHS=${NUM_EPOCHS}"
   exit 1
 fi
 
@@ -133,7 +162,7 @@ GLOBAL_BATCH_EFFECTIVE=$((PER_DEVICE_BATCH * NPROC_PER_NODE * GRAD_ACC_EFFECTIVE
 
 if [[ ! -f "${MODEL_PATH}/config.json" ]]; then
   echo "Model path is not ready: ${MODEL_PATH}"
-  echo "Run: bash CODI/train_on_gsm8k_dataset/prepare_assets.sh --models llama8b --force-datasets"
+  echo "Run: bash CODI/train_on_gsm8k_dataset/prepare_assets.sh --models llama3b --force-datasets"
   exit 1
 fi
 
@@ -232,10 +261,6 @@ run_variant() {
     --per_device_train_batch_size "${PER_DEVICE_BATCH}"
     --gradient_accumulation_steps "${GRAD_ACC_EFFECTIVE}"
     --bf16
-    --dataloader_num_workers 32
-    --dataloader_pin_memory True
-    --dataloader_persistent_workers True
-    --dataloader_prefetch_factor 2
     --num_train_epochs "${NUM_EPOCHS}"
     --learning_rate "${LEARNING_RATE}"
     --max_grad_norm 2.0
@@ -269,10 +294,10 @@ run_variant() {
     --remove_eos True
     --distill_loss_factor 20
     --print_ref_model_stats "${PRINT_REF_MODEL_STATS}"
-    --max_token_num "${MAX_TOKEN_NUM}"
-    --use_decoder True
+    --max_token_num 200
+    --use_decoder False
     --use_trajectory_consistency "${use_trajectory}"
-    --ddp_find_unused_parameters "${DDP_FIND_UNUSED_PARAMETERS}"
+    --ddp_find_unused_parameters False
   )
 
   if [[ "${use_trajectory}" == "True" ]]; then
@@ -297,13 +322,11 @@ run_variant() {
   echo "Grad accum (base)     : ${GRAD_ACC}"
   echo "Grad accum (effective): ${GRAD_ACC_EFFECTIVE}"
   echo "Num epochs            : ${NUM_EPOCHS}"
-  echo "Num latent            : ${NUM_LATENT}"
   echo "Global batch effective: ${GLOBAL_BATCH_EFFECTIVE}"
   echo "Master port           : ${master_port}"
-  echo "Use decoder           : True"
+  echo "Use decoder           : False"
   echo "Use trajectory        : ${use_trajectory}"
-  echo "DDP find unused       : ${DDP_FIND_UNUSED_PARAMETERS}"
-  echo "Max token num         : ${MAX_TOKEN_NUM}"
+  echo "Legacy config source  : /data/yhao/Bs/codi/scripts/train_llama1b_gsm8k_trajectory.sh"
   echo "Save strategy         : ${SAVE_STRATEGY}"
   echo "Save total limit      : ${SAVE_TOTAL_LIMIT}"
   echo "Save steps            : ${SAVE_STEPS} (used when strategy=steps)"
@@ -333,19 +356,22 @@ echo "Selected variant      : ${VARIANT}"
 echo "Model path            : ${MODEL_PATH}"
 echo "Base master port      : ${BASE_MASTER_PORT}"
 echo "SIRCL master port     : ${SIRCL_MASTER_PORT}"
-echo "SIRCL loss factor     : ${SIRCL_LOSS_FACTOR}"
+echo "Legacy seed           : ${SEED}"
+echo "Legacy learning rate  : ${LEARNING_RATE}"
+echo "Legacy per-device bs  : ${PER_DEVICE_BATCH_DEFAULT}"
+echo "Legacy grad accum     : ${GRAD_ACC_DEFAULT}"
 echo "=================================================================="
 
 case "${VARIANT}" in
-  simcon)
-    run_variant "simcon" "False" "${BASE_MASTER_PORT}"
+  codi)
+    run_variant "codi" "False" "${BASE_MASTER_PORT}"
     ;;
-  simcon_sircl)
-    run_variant "simcon_sircl" "True" "${SIRCL_MASTER_PORT}"
+  codi_sircl)
+    run_variant "codi_sircl" "True" "${SIRCL_MASTER_PORT}"
     ;;
   *)
     echo "Unsupported variant: ${VARIANT}"
-    echo "Expected one of: simcon, simcon_sircl"
+    echo "Expected one of: codi, codi_sircl"
     exit 1
     ;;
 esac

@@ -130,12 +130,6 @@ if [[ ! -f "${MODEL_PATH}/config.json" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${CODI_MULTIMODEL_ICOT_CACHE_DIR}/dataset_icot_0a5b3650760a22ea.pt" ]]; then
-  echo "Required icot cache is missing under: ${CODI_MULTIMODEL_ICOT_CACHE_DIR}"
-  echo "Run: bash CODI/train_on_gsm8k_dataset/prepare_assets.sh --models llama1b --force-datasets"
-  exit 1
-fi
-
 is_post_train_eval_enabled() {
   case "${POST_TRAIN_EVAL}" in
     0|false|FALSE|no|NO)

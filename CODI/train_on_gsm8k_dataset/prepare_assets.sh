@@ -11,7 +11,6 @@ MODELS=(llama1b llama3b llama8b qwen3)
 DATASETS=(gsm8k math500 aime svamp gsm-hard asdiv)
 INCLUDE_DATASETS=true
 FORCE_DATASETS=false
-REQUIRED_ICOT_CACHE="dataset_icot_0a5b3650760a22ea.pt"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,32 +71,10 @@ switch_download_env() {
   esac
 }
 
-copy_icot_cache() {
-  local src_dir="${CODI_MULTIMODEL_SOURCE_CACHE_DIR}/dataset_cache"
-  local dst_dir="${CODI_MULTIMODEL_ICOT_CACHE_DIR}"
-  mkdir -p "${dst_dir}"
-  if [[ -f "${dst_dir}/${REQUIRED_ICOT_CACHE}" ]]; then
-    echo "[skip] required icot cache already exists in stage cache: ${dst_dir}/${REQUIRED_ICOT_CACHE}"
-    return
-  fi
-  if [[ ! -d "${src_dir}" ]]; then
-    echo "[error] source icot cache dir not found: ${src_dir}"
-    echo "Training on icot cannot start without ${REQUIRED_ICOT_CACHE}"
-    exit 1
-  fi
-  shopt -s nullglob
-  local files=("${src_dir}"/dataset_icot_*.pt)
-  shopt -u nullglob
-  if [[ ${#files[@]} -eq 0 ]]; then
-    echo "[error] no dataset_icot_*.pt found under ${src_dir}"
-    exit 1
-  fi
-  cp -a "${src_dir}"/dataset_icot_*.pt "${dst_dir}/"
-  if [[ ! -f "${dst_dir}/${REQUIRED_ICOT_CACHE}" ]]; then
-    echo "[error] copied icot cache does not include required file: ${REQUIRED_ICOT_CACHE}"
-    exit 1
-  fi
-  echo "[ok] copied icot cache into stage cache: ${dst_dir}"
+prepare_gsm8k_aug_source() {
+  echo "[info] icot training now reads GSM8K-Aug directly from Hugging Face datasets."
+  echo "[info] legacy dataset_icot_*.pt cache is no longer required."
+  echo "[info] gsm8k cache dir: ${CODI_GSM8K_AUG_CACHE_DIR:-${HF_DATASETS_CACHE:-/data/yhao/hf_datasets_cache}}"
 }
 
 download_models() {
@@ -155,7 +132,7 @@ echo "Models     : ${MODELS[*]}"
 echo "Datasets   : ${DATASETS[*]}"
 echo "=================================================================="
 
-copy_icot_cache
+prepare_gsm8k_aug_source
 download_models
 
 if [[ "${INCLUDE_DATASETS}" == "true" || "${FORCE_DATASETS}" == "true" ]]; then
@@ -171,13 +148,18 @@ Next commands:
   bash CODI/train_on_gsm8k_dataset/train_llama3b.sh
   bash CODI/train_on_gsm8k_dataset/train_llama8b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3.sh
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh
 
 These training scripts now auto-scan all saved checkpoints on:
   ${DATASETS[*]}
 
-Each train_* script runs one variant at a time:
+Primary rebuttal train_* entry points run one SIM-CoT variant at a time:
   default: simcon
   pass --sircl or --variant simcon_sircl for simcon_sircl
+
+Optional Qwen3-4B CODI entry:
+  default: codi
+  pass --sircl or --variant codi_sircl for codi_sircl
 
 Manual single-checkpoint eval fallback:
   bash CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh <ckpt_dir>

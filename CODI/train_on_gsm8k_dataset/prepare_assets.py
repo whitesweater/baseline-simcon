@@ -9,6 +9,9 @@ from datasets import load_dataset
 
 
 CODI_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_GSM8K_AUG_CACHE_DIR = Path("/data/yhao/hf_datasets_cache")
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 
 MODEL_SPECS = {
@@ -39,7 +42,7 @@ MODEL_SPECS = {
 }
 
 DATASET_SPECS = {
-    "gsm8k": {"hf_id": "zen-E/GSM8k-Aug", "split": "test"},
+    "gsm8k": {"hf_id": "zen-E/GSM8k-Aug", "split": "all"},
     "math500": {"hf_id": "HuggingFaceH4/MATH-500", "split": "test"},
     "aime": {"hf_id": "HuggingFaceH4/aime_2024", "split": "train"},
     "svamp": {
@@ -120,6 +123,24 @@ def resolve_local_dataset_path(local_path: str) -> Path:
     if not dataset_path.is_absolute():
         dataset_path = CODI_DIR / dataset_path
     return dataset_path
+
+
+def resolve_dataset_cache_dir(dataset_key: str) -> Path | None:
+    if dataset_key == "gsm8k":
+        cache_dir = (
+            os.environ.get("CODI_GSM8K_AUG_CACHE_DIR")
+            or os.environ.get("HF_DATASETS_CACHE")
+            or str(DEFAULT_GSM8K_AUG_CACHE_DIR)
+        )
+    else:
+        cache_dir = os.environ.get("HF_DATASETS_CACHE")
+
+    if not cache_dir:
+        return None
+
+    cache_path = Path(cache_dir).expanduser()
+    cache_path.mkdir(parents=True, exist_ok=True)
+    return cache_path
 
 
 def resolve_external_model_dir(dest_root: Path, local_model_dir: Path | None) -> Path | None:
@@ -263,13 +284,19 @@ def warm_dataset(dataset_key: str, manifest_root: Path | None = None) -> None:
 
     split = spec.get("split")
     hf_config = spec.get("hf_config")
+    cache_dir = resolve_dataset_cache_dir(dataset_key)
+    load_kwargs = {}
+    if cache_dir is not None:
+        load_kwargs["cache_dir"] = str(cache_dir)
     print(f"[dataset] warming cache for {dataset_key}: {repo_id} [{split}]")
+    if cache_dir is not None:
+        print(f"[dataset] cache dir for {dataset_key}: {cache_dir}")
 
     if split == "all":
         if hf_config:
-            dataset = load_dataset(repo_id, hf_config)
+            dataset = load_dataset(repo_id, hf_config, **load_kwargs)
         else:
-            dataset = load_dataset(repo_id)
+            dataset = load_dataset(repo_id, **load_kwargs)
         available_splits = list(dataset.keys())
         for split_name in available_splits:
             len(dataset[split_name])
@@ -283,9 +310,9 @@ def warm_dataset(dataset_key: str, manifest_root: Path | None = None) -> None:
         )
     else:
         if hf_config:
-            dataset = load_dataset(repo_id, hf_config, split=split)
+            dataset = load_dataset(repo_id, hf_config, split=split, **load_kwargs)
         else:
-            dataset = load_dataset(repo_id, split=split)
+            dataset = load_dataset(repo_id, split=split, **load_kwargs)
         len(dataset)
         manifest_payload.update(
             {
@@ -297,6 +324,8 @@ def warm_dataset(dataset_key: str, manifest_root: Path | None = None) -> None:
 
     if hf_config:
         manifest_payload["hf_config"] = hf_config
+    if cache_dir is not None:
+        manifest_payload["cache_dir"] = str(cache_dir)
 
     if manifest_root is not None:
         write_manifest(manifest_root / f"{dataset_key}.manifest.json", manifest_payload)
