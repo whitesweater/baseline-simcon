@@ -54,6 +54,9 @@ do_print = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+DEFAULT_GSM8K_AUG_HF_ID = "zen-E/GSM8k-Aug"
+DEFAULT_GSM8K_AUG_CACHE_DIR = "/data/yhao/hf_datasets_cache"
+
 def save_jsonl_line(filepath, data):
     """
     将一条字典数据追加写入到 JSONL 文件中。
@@ -90,6 +93,20 @@ def write_json(data, file_path):
             json.dump(data, file, ensure_ascii=False, indent=4)
     except Exception as e:
         print(f"写入JSON文件时出错: {e}")
+
+
+def load_local_eval_json(data_name: str, env_name: str, default_path: str):
+    """优先加载仓库内的本地评测集，便于和训练时的本地格式保持一致。"""
+    eval_path = os.environ.get(env_name, default_path)
+    if not os.path.exists(eval_path):
+        return None
+
+    data = read_json(eval_path)
+    if data is None:
+        raise ValueError(f"{data_name} 本地评测集读取失败: {eval_path}")
+
+    logging.warning(f"[Eval] 使用本地 {data_name} 评测集: {eval_path} ({len(data)} 条)")
+    return data
 
 
 def load_state_dict_from_ckpt(model_args):
@@ -328,24 +345,44 @@ def evaluation(model_args, data_args, training_args):
         answer_name = "response"
         # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm8k_hard_format.json')
     elif "multi-arith" == data_args.data_name:
-        dataset = load_dataset("ChilleD/MultiArith")
-        test_set = dataset['test']
-        answer_name = "final_ans"
-        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/multiarith_format.json')
+        test_set = load_local_eval_json(
+            data_name="multi-arith",
+            env_name="CODI_MULTIARITH_EVAL_PATH",
+            default_path="./local_datasets/multiarith/eval_42.json",
+        )
+        if test_set is not None:
+            question_name = "query"
+            answer_name = "answer"
+        else:
+            dataset = load_dataset("ChilleD/MultiArith")
+            test_set = dataset['test']
+            question_name = "question"
+            answer_name = "final_ans"
     elif "svamp" == data_args.data_name:
-        dataset = load_dataset("ChilleD/SVAMP")
-        test_set = concatenate_datasets([dataset["train"], dataset["test"]])
-        question_name = "question_concat"
-        answer_name = "Answer"
-        # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/svamp_format.json')
+        test_set = load_local_eval_json(
+            data_name="svamp",
+            env_name="CODI_SVAMP_EVAL_PATH",
+            default_path="./local_datasets/svamp/eval_42.json",
+        )
+        if test_set is not None:
+            if len(test_set) != 200:
+                logging.warning(f"[Eval] SVAMP 本地评测集预期 200 条，实际 {len(test_set)} 条")
+            question_name = "query"
+            answer_name = "answer"
+        else:
+            dataset = load_dataset("ChilleD/SVAMP")
+            test_set = dataset['test']
+            question_name = "question_concat"
+            answer_name = "Answer"
     elif "commonsense" == data_args.data_name:
         dataset = load_dataset("zen-E/CommonsenseQA-GPT4omini")
         test_set = dataset['validation']
     elif "gsm8k" == data_args.data_name:
-        #  hf_id = "zen-E/GSM8k-Aug-NL" if "full" in name else "/data/yhao/sim-con/datasets--zen-E--GSM8k-Aug"
-        # test_set = load_dataset("/data/yhao/sim-con/datasets--zen-E--GSM8k-Aug")['test']
-        # hf_id = "zen-E/GSM8k-Aug-NL" if "full" in name else "zen-E/GSM8k-Aug"
-        test_set = load_dataset("zen-E/GSM8k-Aug")["test"]
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+        gsm8k_hf_id = os.environ.get("CODI_GSM8K_AUG_HF_ID", DEFAULT_GSM8K_AUG_HF_ID)
+        gsm8k_cache_dir = os.environ.get("CODI_GSM8K_AUG_CACHE_DIR", DEFAULT_GSM8K_AUG_CACHE_DIR)
+        os.makedirs(gsm8k_cache_dir, exist_ok=True)
+        test_set = load_dataset(gsm8k_hf_id, cache_dir=gsm8k_cache_dir)["test"]
         # test_set = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_test_clean.json')
         # import pdb; pdb.set_trace()
         # print()

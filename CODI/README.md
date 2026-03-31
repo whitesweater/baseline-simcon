@@ -9,7 +9,7 @@ CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果
 - `../PROJECT_GUIDE.md`：仓库级总指南，包含 repo 边界、CODI/Coconut 关系、方法映射、可信结果、实验原则、Git 规则
 - `PROJECT_GUIDE.md`：CODI 子项目导读页，用于把旧入口引回根级总指南
 - `REBUTTAL_WORKSPACE.md`：CODI 侧 rebuttal 导读页，说明新的 workspace 规则已经合并到根级总指南
-- `train_on_gsm8k_dataset/`：当前 cross-backbone rebuttal 实验的专用脚本目录，包含资产准备、4 个直接训练入口和扩展评测入口
+- `train_on_gsm8k_dataset/`：当前 cross-backbone rebuttal 实验的专用脚本目录，包含资产准备、4 个主线 SIM-CoT 训练入口、1 个可选 Qwen3-4B CODI 入口和扩展评测入口
 - `TESTING_GUIDE.md`：CODI 的专项测试说明
 
 ## 当前优先入口
@@ -23,12 +23,18 @@ CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果
 - `train_on_gsm8k_dataset/train_llama3b.sh`
 - `train_on_gsm8k_dataset/train_llama8b.sh`
 - `train_on_gsm8k_dataset/train_qwen3.sh`
+- `train_on_gsm8k_dataset/train_qwen3_codi.sh`
 - `train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
-其中 4 个 `train_*.sh` 入口默认每次只训练一条线：
+其中 rebuttal 主线的 4 个 `train_*.sh` 入口默认每次只训练一条 SIM-CoT 方法线：
 
 - 默认：`simcon`
 - 传 `--sircl` 或 `--variant simcon_sircl`：`simcon_sircl`
+
+另外，`train_qwen3_codi.sh` 提供并行可选的 `Qwen3-4B` CODI 入口：
+
+- 默认：`codi`
+- 传 `--sircl` 或 `--variant codi_sircl`：`codi_sircl`
 
 ## 目录
 

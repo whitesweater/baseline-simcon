@@ -1,0 +1,133 @@
+{
+  "paths": {
+    "llama3b_simcon_sircl": "/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/results/checkpoint_sweeps/multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_simcon_sircl/Llama-3.2-3B-Instruct/ep_10/lr_0.0003/seed_11/summary/all_results.csv",
+    "llama3b_codi_sircl": "/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/results/checkpoint_sweeps/multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_codi_sircl/Llama-3.2-3B-Instruct/ep_8/lr_0.0003/seed_11/summary/all_results.csv",
+    "qwen3_4b_codi_sircl": "/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/results/checkpoint_sweeps/multimodel_gsm8k_math500_aime_v1_gsm8k_qwen3_4b_codi_sircl/Qwen3-4B/ep_10/lr_0.0003/seed_11/summary/all_results.csv",
+    "t6_sircl": "/data/yhao/baseline/CODI/results/latent_sweep_gsm8k/latent_6/summary/all_results.csv",
+    "t6_base": "/data/yhao/baseline/CODI/results/latent_sweep_gsm8k/latent_6/summary/all_results.csv",
+    "t16_sircl": "/data/yhao/baseline/CODI/results/16long/summary/all_results.csv",
+    "t16_base": "/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/results/checkpoint_sweeps/decoder-trajectory-euclidean-16long/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11/summary/all_results.csv",
+    "t32_sircl": "/data/yhao/baseline/CODI/results/32long/summary/all_results.csv",
+    "t32_base": "/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/results/checkpoint_sweeps/decoder-trajectory-euclidean-32long/Llama-3.2-1B-Instruct/ep_10/lr_0.0008/seed_11/summary/all_results.csv",
+    "coconut_gsm8k_log": "/data/yhao/baseline/Coconut/logs/eval_cot_qwen3_20260329_141428.log",
+    "coconut_multidataset_log": "/data/yhao/baseline/Coconut/logs/eval_qwen3_all_20260329_153500.log",
+    "qwen3_simcon_oom_log": "/data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/qwen3_simcon_sircl.log"
+  },
+  "ready_to_cite": {
+    "llama3b_simcon_sircl": {
+      "gsm8k": {
+        "accuracy": 0.6330553449583017,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_simcon_sircl_Llama-3.2-3B-Instruct_ep_10_lr_0.0003_seed_11_checkpoint-53982",
+        "timestamp": "20260327_024943"
+      },
+      "math500": {
+        "accuracy": 0.072,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_simcon_sircl_Llama-3.2-3B-Instruct_ep_10_lr_0.0003_seed_11_checkpoint-41986",
+        "timestamp": "20260327_023554"
+      },
+      "aime": {
+        "accuracy": 0.06666666666666667,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_simcon_sircl_Llama-3.2-3B-Instruct_ep_10_lr_0.0003_seed_11_checkpoint-11996",
+        "timestamp": "20260327_015554"
+      },
+      "gsm-hard": {
+        "accuracy": 0.1516300227445034,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_simcon_sircl_Llama-3.2-3B-Instruct_ep_10_lr_0.0003_seed_11_checkpoint-53982",
+        "timestamp": "20260327_024943"
+      },
+      "asdiv": {
+        "accuracy": 0.7227765726681128,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_simcon_sircl_Llama-3.2-3B-Instruct_ep_10_lr_0.0003_seed_11_checkpoint-53982",
+        "timestamp": "20260327_024943"
+      }
+    },
+    "llama3b_codi_sircl": {
+      "gsm8k": {
+        "accuracy": 0.5238817285822593,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_codi_sircl_Llama-3.2-3B-Instruct_ep_8_lr_0.0003_seed_11_checkpoint-47984",
+        "timestamp": "20260329_202351"
+      },
+      "math500": {
+        "accuracy": 0.076,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_codi_sircl_Llama-3.2-3B-Instruct_ep_8_lr_0.0003_seed_11_checkpoint-17994",
+        "timestamp": "20260329_195325"
+      },
+      "aime": {
+        "accuracy": 0.0,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_codi_sircl_Llama-3.2-3B-Instruct_ep_8_lr_0.0003_seed_11_checkpoint-5998",
+        "timestamp": "20260329_193352"
+      },
+      "gsm-hard": {
+        "accuracy": 0.12357846853677028,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_codi_sircl_Llama-3.2-3B-Instruct_ep_8_lr_0.0003_seed_11_checkpoint-41986",
+        "timestamp": "20260329_201748"
+      },
+      "asdiv": {
+        "accuracy": 0.7232104121475055,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_llama3b_codi_sircl_Llama-3.2-3B-Instruct_ep_8_lr_0.0003_seed_11_checkpoint-41986",
+        "timestamp": "20260329_201748"
+      }
+    },
+    "scaling_gsm8k": [
+      {
+        "latent": 6,
+        "no_sircl": 0.5322213798332069,
+        "sircl": 0.5610310841546626,
+        "delta": 0.028809704321455687
+      },
+      {
+        "latent": 16,
+        "no_sircl": 0.4450341167551175,
+        "sircl": 0.5799848369977255,
+        "delta": 0.134950720242608
+      },
+      {
+        "latent": 32,
+        "no_sircl": 0.4306292645943897,
+        "sircl": 0.5701288855193328,
+        "delta": 0.1394996209249431
+      }
+    ],
+    "coconut_qwen3_cot_gsm8k": {
+      "correct": 971,
+      "total": 1319,
+      "accuracy": 0.7361637604245641
+    }
+  },
+  "partial": {
+    "qwen3_4b_implicit_codi_sircl": {
+      "gsm8k": {
+        "accuracy": 0.024260803639120546,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_qwen3_4b_codi_sircl_Qwen3-4B_ep_10_lr_0.0003_seed_11_checkpoint-41944",
+        "timestamp": "20260329_032117"
+      },
+      "math500": {
+        "accuracy": 0.042,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_qwen3_4b_codi_sircl_Qwen3-4B_ep_10_lr_0.0003_seed_11_checkpoint-47936",
+        "timestamp": "20260329_033807"
+      },
+      "aime": {
+        "accuracy": 0.0,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_qwen3_4b_codi_sircl_Qwen3-4B_ep_10_lr_0.0003_seed_11_checkpoint-5992",
+        "timestamp": "20260329_015555"
+      },
+      "gsm-hard": {
+        "accuracy": 0.009097801364670205,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_qwen3_4b_codi_sircl_Qwen3-4B_ep_10_lr_0.0003_seed_11_checkpoint-41944",
+        "timestamp": "20260329_032117"
+      },
+      "asdiv": {
+        "accuracy": 0.01908893709327549,
+        "model": "multimodel_gsm8k_math500_aime_v1_gsm8k_qwen3_4b_codi_sircl_Qwen3-4B_ep_10_lr_0.0003_seed_11_checkpoint-41944",
+        "timestamp": "20260329_032117"
+      }
+    },
+    "qwen3_simcon_oom": {
+      "oom": true,
+      "per_device_batch": 12,
+      "grad_acc": 1,
+      "global_batch": 48
+    },
+    "coconut_multidataset_eval": "multi-dataset eval attempt failed with EADDRINUSE on port 29500"
+  }
+}

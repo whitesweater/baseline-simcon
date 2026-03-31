@@ -1,5 +1,6 @@
 # Modified from https://github.com/tatsu-lab/stanford_alpaca/blob/main/train.py
 import copy
+import hashlib
 import importlib
 import logging
 import os
@@ -56,6 +57,57 @@ IGNORE_INDEX = -100
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
+
+DEFAULT_GSM8K_AUG_HF_ID = "zen-E/GSM8k-Aug"
+DEFAULT_GSM8K_AUG_CACHE_DIR = "/data/yhao/hf_datasets_cache"
+
+
+def resolve_gsm8k_aug_cache_dir() -> str:
+    cache_dir = (
+        os.environ.get("CODI_GSM8K_AUG_CACHE_DIR")
+        or os.environ.get("HF_DATASETS_CACHE")
+        or DEFAULT_GSM8K_AUG_CACHE_DIR
+    )
+    return os.path.expanduser(cache_dir)
+
+
+def load_gsm8k_aug_dataset(split: str):
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    hf_id = os.environ.get("CODI_GSM8K_AUG_HF_ID", DEFAULT_GSM8K_AUG_HF_ID)
+    cache_dir = resolve_gsm8k_aug_cache_dir()
+    os.makedirs(cache_dir, exist_ok=True)
+    logging.warning(f"Loading GSM8K-Aug from Hugging Face: {hf_id} [{split}], cache_dir={cache_dir}")
+    return load_dataset(hf_id, split=split, cache_dir=cache_dir)
+
+
+DEFAULT_TOKENIZED_CACHE_DIR = "/data/yhao/hf_datasets_cache/tokenized"
+
+
+def _build_cache_key(**kwargs) -> str:
+    """Build a deterministic hash from cache-relevant parameters."""
+    raw = json.dumps(kwargs, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _try_load_tokenized_cache(cache_path: str):
+    """Load cached tokenized data_dict from disk. Returns None on miss."""
+    if not os.path.isfile(cache_path):
+        return None
+    try:
+        logging.warning(f"Loading tokenized cache from {cache_path}")
+        data_dict = torch.load(cache_path, map_location="cpu", weights_only=False)
+        logging.warning(f"Tokenized cache loaded successfully ({len(data_dict.get('encoder_input_ids', []))} samples)")
+        return data_dict
+    except Exception as e:
+        logging.warning(f"Failed to load tokenized cache: {e}, will re-tokenize")
+        return None
+
+
+def _save_tokenized_cache(cache_path: str, data_dict: dict):
+    """Save tokenized data_dict to disk."""
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    torch.save(data_dict, cache_path)
+    logging.warning(f"Tokenized cache saved to {cache_path}")
 
 class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
@@ -388,9 +440,31 @@ def train():
         QUESTION_DA_PROMPT = "\nAnswer the above question. Answer the final number directly in one number.\n"
         def __init__(self, data_name, raw_data, tokenizer, bot, eot):
             super(SupervisedDataset, self).__init__()
-            logging.warning("Formatting inputs...")
-            
+
             self.data_name = data_name
+
+            # --- tokenized cache logic ---
+            cache_dir = os.environ.get("CODI_TOKENIZED_CACHE_DIR", DEFAULT_TOKENIZED_CACHE_DIR)
+            cache_key = _build_cache_key(
+                data_name=data_name,
+                model=model_args.model_name_or_path,
+                bot=bot, eot=eot,
+                max_token_num=training_args.max_token_num,
+                include_last_cot=training_args.include_last_cot,
+                remove_eos=training_args.remove_eos,
+                exp_mode=training_args.exp_mode,
+                exp_data_num=training_args.exp_data_num if training_args.exp_mode else 0,
+            )
+            cache_path = os.path.join(cache_dir, f"{data_name}_{cache_key}.pt")
+
+            cached = _try_load_tokenized_cache(cache_path)
+            if cached is not None:
+                self.data_dict = cached
+                self.keys = list(self.data_dict.keys())
+                return
+            # --- end cache check ---
+
+            logging.warning("Formatting inputs...")
             questions, cots, answers = [], [], []
             num_ops_list = []
             operators = ["+", "-", "*", "/"]
@@ -398,19 +472,8 @@ def train():
             token_nums = []
             # import pdb; pdb.set_trace()
             # raw_data = read_json('/mnt/shared-storage-user/weixilin/MLLM/coconut/data/gsm_train_clean.json')         
-
-            # icot 数据集优先从缓存加载，必须在 for 循环之前处理
-            if "icot" in self.data_name and "full" not in self.data_name:
-                cache_dir = os.environ.get('CODI_CACHE_DIR', os.path.join(os.path.dirname(__file__), 'cache'))
-                cache_path = os.path.join(cache_dir, 'dataset_cache/dataset_icot_0a5b3650760a22ea.pt')
-                if os.path.exists(cache_path):
-                    cached_data = torch.load(cache_path)
-                    self.data_dict = cached_data["data_dict"]
-                    self.keys = cached_data["keys"]
-                    logging.info(f"✓ Cache loaded! {len(self)} samples")
-                    return
-                else:
-                    logging.warning(f"Cache not found at {cache_path}, will load from raw_data")
+            if raw_data is None:
+                raise ValueError(f"raw_data must not be None for dataset: {self.data_name}")
 
             for num_iter, example in tqdm(enumerate(raw_data)):
                 if training_args.exp_mode and num_iter > training_args.exp_data_num:
@@ -456,7 +519,7 @@ def train():
                 question = f"{example['question']}"
                 if "icot" in self.data_name and "full" in self.data_name: # icot-full (GSM8k-Aug-NL)
                     # bad data
-                    if example["answer"] is None or example["response"] is None:
+                    if example.get("answer") is None or (example.get("response") is None and example.get("cot") is None):
                         continue
                     
                     # avoid OOM: remove very long data
@@ -471,6 +534,27 @@ def train():
                     answer = answer.replace("####", "")
                     questions.append(question)
                     cots.append(". ".join(cot)+".\n")
+                    answers.append(answer)
+                elif "icot" in self.data_name: # icot (GSM8k-Aug)
+                    # avoid OOM: remove very long data
+                    token_num = len(tokenizer.encode(example["question"] + example["cot"] + example["answer"]))
+                    if token_num > training_args.max_token_num:
+                        continue
+
+                    cot = f"{example['cot']}".split(" ")
+                    if not training_args.include_last_cot:
+                        cot = cot[:-1]
+
+                    answer = example['answer'].split(' ')[-1]
+
+                    # keep the historical safeguard used by the old icot pipeline
+                    if not answer or not answer[0].isdigit():
+                        continue
+
+                    answer = f"The answer is: {answer}"
+                    answer = answer.replace("####", "")
+                    questions.append(question)
+                    cots.append(" ".join(cot))
                     answers.append(answer)
                 elif "commonsense" in self.data_name or "strategy" in self.data_name:
                     question = example['question'].strip() + '\n'
@@ -508,6 +592,9 @@ def train():
 
             self.data_dict = preprocess(questions, cots, answers, tokenizer, bot, eot)
             self.keys = list(self.data_dict.keys())
+
+            # save to cache for next run
+            _save_tokenized_cache(cache_path, self.data_dict)
 
 
         def __len__(self):
@@ -552,9 +639,7 @@ def train():
         """Make dataset and collator for supervised fine-tuning."""
         logging.warning("Downloading Data")
         if "icot" in data_args.data_name:
-            # gsm8k_aug_path = os.environ.get('CODI_GSM8K_AUG_PATH', 'zen-E/GSM8k-Aug')
-            # dataset = load_dataset("zen-E/GSM8k-Aug")["train"]
-            dataset = None
+            dataset = load_gsm8k_aug_dataset(split="train")
             train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
             data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
             return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)

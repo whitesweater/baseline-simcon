@@ -24,6 +24,19 @@ from datasets import load_dataset, concatenate_datasets
 from src.tokenizer_utils import load_tokenizer_with_fallback
 from tqdm import tqdm
 
+DEFAULT_GSM8K_AUG_HF_ID = "zen-E/GSM8k-Aug"
+DEFAULT_GSM8K_AUG_CACHE_DIR = "/data/yhao/hf_datasets_cache"
+
+
+def get_dataset_load_kwargs(hf_id: str) -> dict:
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    if hf_id != os.environ.get("CODI_GSM8K_AUG_HF_ID", DEFAULT_GSM8K_AUG_HF_ID):
+        return {}
+
+    cache_dir = os.environ.get("CODI_GSM8K_AUG_CACHE_DIR", DEFAULT_GSM8K_AUG_CACHE_DIR)
+    os.makedirs(cache_dir, exist_ok=True)
+    return {"cache_dir": cache_dir}
+
 
 # ============================================================
 # 数据集配置
@@ -44,17 +57,24 @@ DATASET_CONFIGS = {
         "answer_type": "number",
     },
     "multi-arith": {
+        "local_path": "./local_datasets/multiarith/eval_42.json",
         "hf_id": "ChilleD/MultiArith",
         "split": "test",
-        "question_field": "question",
-        "answer_field": "final_ans",
+        "local_question_field": "query",
+        "local_answer_field": "answer",
+        "hf_question_field": "question",
+        "hf_answer_field": "final_ans",
         "answer_type": "number",
     },
     "svamp": {
+        "local_path": "./local_datasets/svamp/eval_42.json",
         "hf_id": "ChilleD/SVAMP",
-        "split": "all",
-        "question_field": "question_concat",
-        "answer_field": "Answer",
+        "split": "test",
+        "local_question_field": "query",
+        "local_answer_field": "answer",
+        "hf_question_field": "question_concat",
+        "hf_answer_field": "Answer",
+        "expected_local_size": 200,
         "answer_type": "number",
     },
     "commonsense": {
@@ -78,26 +98,67 @@ DATASET_CONFIGS = {
 def load_dataset_by_name(data_name: str):
     """加载数据集，优先使用本地缓存"""
     config = DATASET_CONFIGS[data_name]
+    load_kwargs = get_dataset_load_kwargs(config["hf_id"])
+
+    def resolve_config_for_source(source: str) -> dict:
+        resolved = dict(config)
+        question_field_key = f"{source}_question_field"
+        answer_field_key = f"{source}_answer_field"
+        if question_field_key in resolved:
+            resolved["question_field"] = resolved[question_field_key]
+        if answer_field_key in resolved:
+            resolved["answer_field"] = resolved[answer_field_key]
+        return resolved
+
+    if "local_path" in config:
+        local_path = config["local_path"]
+        if os.path.exists(local_path):
+            resolved_config = resolve_config_for_source("local")
+            print(f"[Data] 从本地评测集加载 {data_name}: {local_path}")
+            with open(local_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            expected_size = resolved_config.get("expected_local_size")
+            if expected_size is not None and len(data) != expected_size:
+                print(
+                    f"[Data] 警告: {data_name} 本地评测集预期 {expected_size} 条，"
+                    f"实际读取到 {len(data)} 条"
+                )
+
+            required_fields = [
+                resolved_config["question_field"],
+                resolved_config["answer_field"],
+            ]
+            for idx, ex in enumerate(data):
+                missing_fields = [field for field in required_fields if field not in ex]
+                if missing_fields:
+                    raise KeyError(
+                        f"{data_name} 本地样本 #{idx} 缺少字段 {missing_fields}，"
+                        f"可用字段: {sorted(ex.keys())}"
+                    )
+            return data, resolved_config
     
     # 尝试离线加载
     os.environ["HF_DATASETS_OFFLINE"] = "1"
     try:
         print(f"[Data] 加载 {data_name} (离线模式)...")
-        dataset = load_dataset(config["hf_id"], trust_remote_code=True)
+        dataset = load_dataset(config["hf_id"], trust_remote_code=True, **load_kwargs)
         print(f"[Data] ✓ 从本地缓存加载成功")
     except Exception:
         print(f"[Data] 本地缓存不存在，尝试在线加载...")
         os.environ.pop("HF_DATASETS_OFFLINE", None)
-        dataset = load_dataset(config["hf_id"], trust_remote_code=True)
+        dataset = load_dataset(config["hf_id"], trust_remote_code=True, **load_kwargs)
     finally:
         os.environ.pop("HF_DATASETS_OFFLINE", None)
-    
-    if config["split"] == "all":
+
+    resolved_config = resolve_config_for_source("hf")
+
+    if resolved_config["split"] == "all":
         test_set = concatenate_datasets([dataset["train"], dataset["test"]])
     else:
-        test_set = dataset[config["split"]]
+        test_set = dataset[resolved_config["split"]]
     
-    return test_set, config
+    return test_set, resolved_config
 
 
 def prepare_data(test_set, config):

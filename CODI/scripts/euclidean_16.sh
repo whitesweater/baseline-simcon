@@ -24,7 +24,7 @@ torchrun --nnodes 1 --master_port 22520 --nproc_per_node 4 train.py \
 	--dataloader_pin_memory True \
 	--dataloader_persistent_workers True \
 	--dataloader_prefetch_factor 2 \
-	--num_train_epochs 12 \
+	--num_train_epochs 10 \
 	--learning_rate 8e-4 \
 	--max_grad_norm 2.0 \
 	--use_lora True \
@@ -52,7 +52,7 @@ torchrun --nnodes 1 --master_port 22520 --nproc_per_node 4 train.py \
 	--print_ref_model_stats False \
 	--max_token_num 200 \
 	--use_decoder True \
-	--use_trajectory_consistency True \
+	--use_trajectory_consistency False \
 	--trajectory_space_type euclidean \
 	--trajectory_radius_threshold 6 \
 	--trajectory_loss_factor 0.05

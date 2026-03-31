@@ -189,12 +189,18 @@ CODI/train_on_gsm8k_dataset/
 - `CODI/train_on_gsm8k_dataset/train_llama3b.sh`
 - `CODI/train_on_gsm8k_dataset/train_llama8b.sh`
 - `CODI/train_on_gsm8k_dataset/train_qwen3.sh`
+- `CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh`
 - `CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
-四个 `train_*.sh` 当前默认每次只训练一条方法线：
+主线的四个 `train_*.sh` 当前默认每次只训练一条 SIM-CoT 方法线：
 
 - 默认：`simcon`
 - 如果显式传 `--sircl` 或 `--variant simcon_sircl`：`simcon_sircl`
+
+额外的 `train_qwen3_codi.sh` 提供可选的 `Qwen3-4B` CODI 入口：
+
+- 默认：`codi`
+- 如果显式传 `--sircl` 或 `--variant codi_sircl`：`codi_sircl`
 
 ---
 
@@ -570,6 +576,7 @@ bash CODI/train_on_gsm8k_dataset/train_llama1b.sh
 bash CODI/train_on_gsm8k_dataset/train_llama3b.sh
 bash CODI/train_on_gsm8k_dataset/train_llama8b.sh
 bash CODI/train_on_gsm8k_dataset/train_qwen3.sh
+bash CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh
 ```
 
 默认训练方法线是：

@@ -64,6 +64,28 @@ huggingface-cli download meta-llama/Llama-3.1-8B --local-dir ./pretrained/llama-
 
 ## 训练流程
 
+### Stage 0: 训练 Qwen3 CoT-SFT Baseline（可选但推荐）
+
+如果你希望先用更强的 backbone 做纯 CoT-SFT baseline，再继续做 Coconut 或 trajectory consistency 相关实验，可以直接使用新增的 Qwen3 配置：
+
+```bash
+cd Coconut
+bash scripts/train_cot_qwen3.sh 4
+```
+
+对应配置文件：
+
+- `args/gsm_cot_qwen3.yaml`
+- `args/gsm_cot_qwen3_eval.yaml`
+
+默认本地模型路径：
+
+- `/data/yhao/rank/models/Qwen3-4B`
+
+默认产出 checkpoint：
+
+- `./ckpts/gsm-qwen3-cot-sft/`
+
 ### Stage 1: 训练 Coconut Baseline
 
 首先需要训练一个 Coconut baseline 模型：
@@ -126,9 +148,13 @@ Coconut/
 ├── coconut.py                     # 修改后的模型（集成 trajectory loss）
 ├── run.py                         # 修改后的训练脚本（日志支持）
 ├── args/
+│   ├── gsm_cot_qwen3.yaml                # Qwen3-4B CoT-SFT 训练配置
+│   ├── gsm_cot_qwen3_eval.yaml           # Qwen3-4B CoT-SFT 评测配置
 │   ├── gsm_coconut_trajectory.yaml       # 训练配置
 │   └── gsm_coconut_trajectory_eval.yaml  # 评测配置
 ├── scripts/
+│   ├── train_cot_qwen3.sh         # Qwen3-4B CoT-SFT 训练脚本
+│   ├── eval_cot_qwen3.sh          # Qwen3-4B CoT-SFT 评测脚本
 │   ├── train_trajectory.sh        # 训练脚本
 │   └── eval_trajectory.sh         # 评测脚本
 └── data/

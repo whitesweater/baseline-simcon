@@ -1,0 +1,1 @@
+../../analyze_latent_collapse.py

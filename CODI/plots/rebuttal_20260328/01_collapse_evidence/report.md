@@ -1,0 +1,1 @@
+../../results/LATENT_COLLAPSE_REPORT_20260328.md

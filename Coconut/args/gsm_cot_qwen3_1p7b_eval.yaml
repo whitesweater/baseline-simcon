@@ -1,0 +1,46 @@
+# Evaluate the Qwen3-1.7B CoT-SFT baseline for GSM8K
+# Usage:
+#   torchrun --nnodes 1 --nproc_per_node 4 run.py args/gsm_cot_qwen3_1p7b_eval.yaml
+
+project: coconut
+save_path: ./ckpts
+name: gsm-qwen3-1p7b-cot-sft
+
+only_eval: True
+
+coconut: False
+cot: True
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+c_thought: 0
+epochs_per_stage: 1
+max_latent_stage: 0
+pad_latent_to_max: True
+
+save_only_improve: True
+uniform_prob: 0.0
+
+model_id: /data/yhao/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/models/Qwen3-1.7B
+load_model_path: ./ckpts/gsm-qwen3-1p7b-cot-sft/checkpoint_25
+
+seed: 0
+resume: 0
+bf16: True
+
+train_path: ./data/gsm_train.json
+val_path: ./data/gsm_test.json
+
+reset_optimizer: False
+batch_size_training: 8
+debug: False
+gradient_accumulation_steps: 1
+num_epochs: 25
+lr: !!float "2e-5"
+weight_decay: 0.01
+
+mode: coconut_baseline
+training_method: only_base_causallm
+wandb: False
+train_or_eval: eval

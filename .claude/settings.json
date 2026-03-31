@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(sort *)",
+      "Bash(awk *)",
+      "Bash(sed *)",
+      "Bash(diff *)",
+      "Bash(du *)",
+      "Bash(tree *)",
+      "Bash(echo *)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(uv *)",
+      "Bash(source *)",
+      "Bash(cd *)",
+      "Bash(chmod *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(bash *)",
+      "Bash(nohup *)",
+      "Bash(torchrun *)",
+      "Bash(nvidia-smi*)",
+      "Read(*)",
+      "Write(*)",
+      "Read(//data/yhao/baseline/$3 ~ /^\\(220|268|175|935\\)$/**)",
+      "Read(//data/yhao/baseline/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)"
+    ]
+  }
+}

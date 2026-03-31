@@ -17,16 +17,19 @@ from transformers.data.data_collator import pad_without_fast_tokenizer_warning
 def get_dataset(path, tokenizer, max_size=1000000000):
 
     def tokenize_sample(sample):
+        question_text = str(sample["question"])
+        steps_text = [str(s) for s in sample["steps"]]
+        answer_text = str(sample["answer"])
 
         question_tokenized = tokenizer.encode(
-            sample["question"] + "\n", add_special_tokens=True
+            question_text + "\n", add_special_tokens=True
         )
         steps_tokenized = [
             tokenizer.encode(s + "\n", add_special_tokens=False)
-            for s in sample["steps"]
+            for s in steps_text
         ]
         answer_tokenized = tokenizer.encode(
-            "### " + sample["answer"], add_special_tokens=False
+            "### " + answer_text, add_special_tokens=False
         ) + [tokenizer.eos_token_id]
 
         sample = {
@@ -62,7 +65,13 @@ def get_dataset(path, tokenizer, max_size=1000000000):
 
     # verify
     d = data[0]
-    complete = d["question"] + "\n" + "\n".join(d["steps"]) + "\n### " + d["answer"]
+    complete = (
+        str(d["question"])
+        + "\n"
+        + "\n".join(str(step) for step in d["steps"])
+        + "\n### "
+        + str(d["answer"])
+    )
     complete_tokenized = tokenizer.encode(complete, add_special_tokens=True) + [
         tokenizer.eos_token_id
     ]

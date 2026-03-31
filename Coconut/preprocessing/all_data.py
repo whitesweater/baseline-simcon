@@ -36,6 +36,28 @@ DATASET_CONFIGS = {
         "answer_field": "Answer",
         "answer_type": "number",
     },
+    "asdiv": {
+        "hf_id": "EleutherAI/asdiv",
+        "split": "validation",
+        "question_field": "body",
+        "question_field_2": "question",  # body + question 拼接
+        "answer_field": "answer",
+        "answer_type": "number",
+    },
+    "math500": {
+        "hf_id": "HuggingFaceH4/MATH-500",
+        "split": "test",
+        "question_field": "problem",
+        "answer_field": "answer",
+        "answer_type": "string",
+    },
+    "aime": {
+        "hf_id": "HuggingFaceH4/aime_2024",
+        "split": "train",  # aime_2024 只有 train split
+        "question_field": "problem",
+        "answer_field": "answer",
+        "answer_type": "number",
+    },
 }
 
 
@@ -58,34 +80,50 @@ def load_dataset_by_name(data_name: str):
 
 def prepare_questions_and_answers(test_set, config):
     question_field = config["question_field"]
+    question_field_2 = config.get("question_field_2")
     answer_field = config["answer_field"]
     answer_type = config["answer_type"]
 
-    questions = [ex[question_field].strip().replace("  ", " ") for ex in test_set]
+    questions = []
+    for ex in test_set:
+        q = ex[question_field].strip().replace("  ", " ")
+        if question_field_2 and question_field_2 in ex:
+            q = q + " " + ex[question_field_2].strip()
+        questions.append(q)
+
     answers = []
 
     for ex in test_set:
         ans = ex[answer_field]
 
         if isinstance(ans, bool):
-            answers.append(ans)
+            answers.append(str(ans))
             continue
         if ans in ["True", "False"]:
-            answers.append(ans == "True")
+            answers.append(ans)
             continue
 
         if answer_type == "choice" and ans in "ABCDE":
             answers.append(ans)
             continue
 
+        if answer_type == "string":
+            # MATH etc. — keep answer as-is (string)
+            answers.append(str(ans).strip())
+            continue
+
         if "####" in str(ans):
             ans = str(ans).split("####")[-1]
-        ans = str(ans).replace(",", "")
+        ans = str(ans).replace(",", "").strip()
 
+        # 数值型答案：去掉末尾 .0
         try:
-            answers.append(float(ans))
+            num = float(ans)
+            ans = str(int(num)) if num == int(num) else str(num)
         except ValueError:
-            answers.append(float("inf"))
+            pass
+
+        answers.append(ans)
 
     return questions, answers
 
@@ -129,8 +167,8 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         required=True,
-        choices=list(DATASET_CONFIGS.keys()),
-        help="数据集名称",
+        choices=list(DATASET_CONFIGS.keys()) + ["all"],
+        help="数据集名称 (use 'all' to prepare all datasets)",
     )
     parser.add_argument(
         "--split",
@@ -145,4 +183,9 @@ if __name__ == "__main__":
         help="输出 JSON 路径，默认 data/{dataset}_{split}.json",
     )
     args = parser.parse_args()
-    main(args.dataset, args.split, args.output)
+    if args.dataset == "all":
+        for ds_name in DATASET_CONFIGS:
+            print(f"\n===== Preparing {ds_name} =====")
+            main(ds_name, output=f"data/{ds_name}_{DATASET_CONFIGS[ds_name]['split']}.json")
+    else:
+        main(args.dataset, args.split, args.output)

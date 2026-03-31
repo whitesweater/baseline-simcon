@@ -52,14 +52,20 @@ DISPLAY_NAMES = {
 class LatentAnalyzer:
     """Latent Token分析器"""
     
-    def __init__(self, results_dir: str):
+    def __init__(self, results_dir: str, sample_filter: str = "all_correct"):
         """
         Args:
             results_dir: 结果目录路径，包含models/子目录
+            sample_filter: 样本筛选策略
+                - 'all_correct': 只用所有模型都答对的样本（原有行为）
+                - 'all': 用全部样本
+                - 'per_model': 按每个模型自己的 correct/wrong 分组
         """
         self.results_dir = Path(results_dir)
         self.models_dir = self.results_dir / "models"
-        self.output_dir = self.results_dir / "latent_analysis"
+        self.sample_filter = sample_filter
+        suffix = "" if sample_filter == "all_correct" else f"_{sample_filter}"
+        self.output_dir = self.results_dir / f"latent_analysis{suffix}"
         self.output_dir.mkdir(exist_ok=True)
         
         self.model_names = []
@@ -126,8 +132,22 @@ class LatentAnalyzer:
         for model_name in self.model_names:
             all_correct &= self.correct_masks[model_name]
         
-        self.all_correct_indices = np.where(all_correct)[0]
-        print(f"\nQuestions all models answered correctly: {len(self.all_correct_indices)}/{len(self.ground_truths)}")
+        self.all_correct_mask = all_correct
+        n_all_correct = int(all_correct.sum())
+        print(f"\nQuestions all models answered correctly: {n_all_correct}/{len(self.ground_truths)}")
+        
+        # 根据 sample_filter 设置分析范围
+        if self.sample_filter == "all":
+            self.all_correct_indices = np.arange(len(self.ground_truths))
+            print(f"[sample_filter=all] Using ALL {len(self.all_correct_indices)} samples for analysis")
+        elif self.sample_filter == "per_model":
+            # per_model 模式下，all_correct_indices 仍为全部，具体分组在分析函数中处理
+            self.all_correct_indices = np.arange(len(self.ground_truths))
+            print(f"[sample_filter=per_model] Will analyze correct/wrong per model on all {len(self.all_correct_indices)} samples")
+        else:
+            # 默认: all_correct
+            self.all_correct_indices = np.where(all_correct)[0]
+            print(f"[sample_filter=all_correct] Using {len(self.all_correct_indices)} all-correct samples for analysis")
         
     def compute_relative_latents(self) -> Dict[str, np.ndarray]:
         """
@@ -1402,7 +1422,8 @@ class LatentAnalyzer:
     def run_full_analysis(self, skip_existing: bool = True):
         """运行完整分析"""
         print("=" * 60)
-        print("Starting Full Latent Token Analysis")
+        filter_desc = f"sample_filter={self.sample_filter}, N={len(self.all_correct_indices)}"
+        print(f"Starting Full Latent Token Analysis ({filter_desc})")
         print("=" * 60)
         
         # 1. 计算统计指标
@@ -3171,9 +3192,12 @@ def main():
                        help='Run index')
     parser.add_argument('--skip_existing', action='store_true', default=True,
                        help='Skip existing visualizations')
+    parser.add_argument('--sample_filter', type=str, default='all_correct',
+                       choices=['all_correct', 'all', 'per_model'],
+                       help='Sample filter: all_correct (default), all, or per_model')
     args = parser.parse_args()
     
-    analyzer = LatentAnalyzer(args.results_dir)
+    analyzer = LatentAnalyzer(args.results_dir, sample_filter=args.sample_filter)
     analyzer.load_data(dataset=args.dataset, run=args.run)
     
     # 运行主分析（所有模型都答对的题目）
@@ -3188,7 +3212,8 @@ def main():
     print("=" * 60)
     
     # 找出在关键指标上表现最好的模型
-    print("\nBest performing model by metric (all correct questions):")
+    filter_label = f"sample_filter={args.sample_filter}, N={len(analyzer.all_correct_indices)}"
+    print(f"\nBest performing model by metric ({filter_label}):")
     print(f"  - Highest Cosine Similarity to Final: {stats_df.loc[stats_df['cos_sim_to_final_mean'].idxmax(), 'model']}")
     print(f"  - Lowest Euclidean Distance to Final: {stats_df.loc[stats_df['eucl_dist_to_final_mean'].idxmin(), 'model']}")
     print(f"  - Best Cluster Compactness: {stats_df.loc[stats_df['cluster_compactness_mean'].idxmin(), 'model']}")

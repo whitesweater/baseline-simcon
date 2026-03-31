@@ -1,0 +1,45 @@
+# Stage 0: COT-SFT for LLaMA-3.2-3B-Instruct
+# Train explicit chain-of-thought supervised fine-tuning before Coconut latent training
+# torchrun --nnodes 1 --nproc_per_node 4 run.py args/gsm_cot_llama3.yaml
+
+project: coconut
+save_path: ./ckpts
+name: gsm-cot-llama3
+
+only_eval: False
+
+coconut: False
+cot: True
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+c_thought: 0
+epochs_per_stage: 1
+max_latent_stage: 0
+pad_latent_to_max: True
+
+save_only_improve: True
+uniform_prob: 0.0
+
+model_id: /data/yhao/sim-con/modelscope/LLM-Research/Llama-3.2-3B-Instruct
+load_model_path: null
+seed: 0
+resume: 0
+bf16: True
+
+train_path: ./data/gsm_train.json
+val_path: ./data/gsm_test.json
+
+reset_optimizer: False
+batch_size_training: 32
+debug: False
+gradient_accumulation_steps: 1
+num_epochs: 25
+lr: !!float "5e-5"
+weight_decay: 0.01
+
+mode: coconut_baseline
+training_method: only_base_causallm
+
+wandb: False

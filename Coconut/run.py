@@ -16,6 +16,16 @@ from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
 
+try:
+    from transformers.models.qwen2.modeling_qwen2 import Qwen2DecoderLayer
+except ImportError:
+    Qwen2DecoderLayer = None
+
+try:
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3DecoderLayer
+except ImportError:
+    Qwen3DecoderLayer = None
+
 from coconut import Coconut, CoconutGPT_Same_Word_Embedding
 from dataset import (
     get_dataset,
@@ -49,6 +59,37 @@ def save_jsonl_line(filepath, data):
     with open(filepath, "a", encoding="utf-8") as f:
         json_line = json.dumps(data, ensure_ascii=False)
         f.write(json_line + "\n")
+
+
+def has_config_value(value):
+    if value is None:
+        return False
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null"}:
+        return False
+    return True
+
+
+def pick_reference_token_id(tokenizer):
+    candidate_texts = ["<<", "Step", "\n", "the"]
+    for text in candidate_texts:
+        token_ids = tokenizer(text, add_special_tokens=False).input_ids
+        if token_ids:
+            return token_ids[0]
+
+    for token_id in (tokenizer.eos_token_id, tokenizer.bos_token_id, tokenizer.unk_token_id):
+        if token_id is not None:
+            return token_id
+
+    return 0
+
+
+def build_transformer_layer_cls():
+    layer_classes = {LlamaDecoderLayer}
+    if Qwen2DecoderLayer is not None:
+        layer_classes.add(Qwen2DecoderLayer)
+    if Qwen3DecoderLayer is not None:
+        layer_classes.add(Qwen3DecoderLayer)
+    return layer_classes
 
 def main():
     
@@ -105,7 +146,7 @@ def main():
 
     elif configs.resume != 0:
         # by setting `resume`, we can skip a few epoches at the beginning.
-        if configs.load_model_path == "None":
+        if not has_config_value(configs.load_model_path):
             print(
                 f"Warning: you want to skip the first {configs.resume} but you are not loading any existing checkpoint!"
             )
@@ -122,17 +163,24 @@ def main():
         explainable_model.to(local_rank)
 
     tokenizer = AutoTokenizer.from_pretrained(configs.model_id)
-    tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token is None:
+        if tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        elif tokenizer.bos_token is not None:
+            tokenizer.pad_token = tokenizer.bos_token
+        elif tokenizer.unk_token is not None:
+            tokenizer.pad_token = tokenizer.unk_token
     tokenizer.add_tokens("<|start-latent|>")
     tokenizer.add_tokens("<|end-latent|>")
     tokenizer.add_tokens("<|latent|>")
     latent_id = tokenizer.convert_tokens_to_ids("<|latent|>")
     start_id = tokenizer.convert_tokens_to_ids("<|start-latent|>")
     end_id = tokenizer.convert_tokens_to_ids("<|end-latent|>")
+    reference_token_id = pick_reference_token_id(tokenizer)
 
     loaded = False
 
-    if configs.load_model_path != "None":
+    if has_config_value(configs.load_model_path):
         saved_weights = torch.load(
             configs.load_model_path, map_location="cpu"
         )
@@ -166,15 +214,14 @@ def main():
         # if we need new tokens, initialize their embeddings and lm heads
         model.resize_token_embeddings(len(tokenizer))
         embeddings = model.get_input_embeddings()
-        target_id = tokenizer.convert_tokens_to_ids("<<")
         # initialize the new token embeddings with a known token
         # it helps stablize the training
         for token_id in [latent_id, start_id, end_id]:
-            target_embedding = embeddings.weight.data[target_id] 
+            target_embedding = embeddings.weight.data[reference_token_id]
             embeddings.weight.data[token_id] = target_embedding
             # The input embeddings and lm heads are tied in GPT2. So the code below is not necessary
             lm_head = model.lm_head
-            lm_head.weight.data[token_id] = lm_head.weight.data[target_id]
+            lm_head.weight.data[token_id] = lm_head.weight.data[reference_token_id]
 
     if configs.no_thoughts:
         configs.c_thought = 0
@@ -182,13 +229,13 @@ def main():
 
     if configs.coconut:
         if configs.mode == 'coconutgpt_same_word_embedding':
-            model = CoconutGPT_Same_Word_Embedding(model, explainable_model, tokenizer, latent_id, start_id, end_id, tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<<"), configs.c_thought, configs)
+            model = CoconutGPT_Same_Word_Embedding(model, explainable_model, tokenizer, latent_id, start_id, end_id, tokenizer.eos_token_id, reference_token_id, configs.c_thought, configs)
         elif configs.mode == 'coconut_baseline':
             model = Coconut(model, latent_id, start_id, end_id, tokenizer.eos_token_id)
         else:
             raise ValueError(f"don't support model {configs.mode=}")
 
-    if configs.load_model_path != "None" and not loaded:
+    if has_config_value(configs.load_model_path) and not loaded:
         print(model.load_state_dict(saved_weights, strict=False))
 
     print(f"Running FSDP on rank = {rank}, world size = {world_size}")
@@ -196,10 +243,7 @@ def main():
 
     llama_auto_wrap_policy = functools.partial(
         transformer_auto_wrap_policy,
-        transformer_layer_cls={
-            # GPT2Block,       # for GPT2, we don't need to shard layers (it becomes DDP)
-            LlamaDecoderLayer  # only shard llama's layers.
-        },
+        transformer_layer_cls=build_transformer_layer_cls(),
     )
 
     if configs.bf16:

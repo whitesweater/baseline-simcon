@@ -56,6 +56,19 @@ CODI_RESULT_DIR = os.environ.get("CODI_RESULT_DIR", "./results")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+DEFAULT_GSM8K_AUG_HF_ID = "zen-E/GSM8k-Aug"
+DEFAULT_GSM8K_AUG_CACHE_DIR = "/data/yhao/hf_datasets_cache"
+
+
+def get_dataset_load_kwargs(hf_id: str) -> dict:
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    if hf_id != os.environ.get("CODI_GSM8K_AUG_HF_ID", DEFAULT_GSM8K_AUG_HF_ID):
+        return {}
+
+    cache_dir = os.environ.get("CODI_GSM8K_AUG_CACHE_DIR", DEFAULT_GSM8K_AUG_CACHE_DIR)
+    os.makedirs(cache_dir, exist_ok=True)
+    return {"cache_dir": cache_dir}
+
 
 # ============================================================
 # 数据集配置
@@ -79,16 +92,21 @@ DATASET_CONFIGS = {
         "local_path": "./local_datasets/multiarith/eval_42.json",  # 优先使用本地数据
         "hf_id": "ChilleD/MultiArith",  # 备用 HF 数据
         "split": "test",
-        "question_field": "query",
-        "answer_field": "answer",
+        "local_question_field": "query",
+        "local_answer_field": "answer",
+        "hf_question_field": "question",
+        "hf_answer_field": "final_ans",
         "answer_type": "number",
     },
     "svamp": {
         "local_path": "./local_datasets/svamp/eval_42.json",  # 优先使用本地数据
         "hf_id": "ChilleD/SVAMP",  # 备用 HF 数据
-        "split": "all",  # 特殊处理：合并 train 和 test
-        "question_field": "query",
-        "answer_field": "answer",
+        "split": "test",
+        "local_question_field": "query",
+        "local_answer_field": "answer",
+        "hf_question_field": "question_concat",
+        "hf_answer_field": "Answer",
+        "expected_local_size": 200,
         "answer_type": "number",
     },
     "commonsense": {
@@ -251,6 +269,16 @@ def _unwrap_simple_latex_wrappers(text: str) -> str:
     return text
 
 
+def _decimal_to_canonical_string(value: Decimal) -> str:
+    """稳定地序列化 Decimal，避免把整数末尾的 0 错误裁掉。"""
+    text = format(value.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in {"", "-0"}:
+        return "0"
+    return text
+
+
 def _canonicalize_numeric_string(text: str) -> Optional[str]:
     """将简单数字/分数字符串规整成统一格式。"""
     candidate = text.strip()
@@ -268,17 +296,17 @@ def _canonicalize_numeric_string(text: str) -> Optional[str]:
             if denominator == 0:
                 return None
             value = numerator / denominator
-            return format(value.normalize(), "f").rstrip("0").rstrip(".") or "0"
+            return _decimal_to_canonical_string(value)
         if slash_frac:
             numerator = Decimal(slash_frac.group(1))
             denominator = Decimal(slash_frac.group(2))
             if denominator == 0:
                 return None
             value = numerator / denominator
-            return format(value.normalize(), "f").rstrip("0").rstrip(".") or "0"
+            return _decimal_to_canonical_string(value)
         if simple_number:
             value = Decimal(candidate)
-            return format(value.normalize(), "f").rstrip("0").rstrip(".") or "0"
+            return _decimal_to_canonical_string(value)
     except (InvalidOperation, ZeroDivisionError):
         return None
     return None
@@ -392,18 +420,51 @@ def load_dataset_by_name(data_name: str):
         raise ValueError(f"未知数据集: {data_name}。支持: {list(DATASET_CONFIGS.keys())}")
     
     config = DATASET_CONFIGS[data_name]
+    load_kwargs = get_dataset_load_kwargs(config.get("hf_id", ""))
+
+    def resolve_config_for_source(source: str) -> dict:
+        resolved = dict(config)
+        question_field_key = f"{source}_question_field"
+        answer_field_key = f"{source}_answer_field"
+        if question_field_key in resolved:
+            resolved["question_field"] = resolved[question_field_key]
+        if answer_field_key in resolved:
+            resolved["answer_field"] = resolved[answer_field_key]
+        return resolved
+
+    def validate_local_json(data: list, resolved_config: dict):
+        expected_size = resolved_config.get("expected_local_size")
+        if expected_size is not None and len(data) != expected_size:
+            print(
+                f"[Data] 警告: {data_name} 本地评测集预期 {expected_size} 条，"
+                f"实际读取到 {len(data)} 条"
+            )
+
+        required_fields = [
+            resolved_config["question_field"],
+            resolved_config["answer_field"],
+        ]
+        for idx, ex in enumerate(data):
+            missing_fields = [field for field in required_fields if field not in ex]
+            if missing_fields:
+                raise KeyError(
+                    f"{data_name} 本地样本 #{idx} 缺少字段 {missing_fields}，"
+                    f"可用字段: {sorted(ex.keys())}"
+                )
     
     # 优先支持本地 JSON 文件
     if "local_path" in config:
         local_path = config["local_path"]
         if os.path.exists(local_path):
+            resolved_config = resolve_config_for_source("local")
             print(f"[Data] 加载本地数据集: {data_name} ({local_path})")
             with open(local_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+            validate_local_json(data, resolved_config)
             # 将 list 转换为 Dataset 格式
             from datasets import Dataset
             test_set = Dataset.from_list(data)
-            return test_set, config
+            return test_set, resolved_config
         else:
             # 本地文件不存在，回退到 HuggingFace
             print(f"[Data] 本地文件不存在: {local_path}，尝试从 HuggingFace 加载")
@@ -418,21 +479,20 @@ def load_dataset_by_name(data_name: str):
         try:
             # 首先尝试离线模式（直接使用本地缓存）
             if hf_config:
-                return load_dataset(hf_id, hf_config)
+                return load_dataset(hf_id, hf_config, **load_kwargs)
             else:
-                return load_dataset(hf_id)
+                return load_dataset(hf_id, **load_kwargs)
         except Exception as e:
             print(f"[Data] 在线加载失败: {e}")
             print(f"[Data] 尝试强制使用本地缓存...")
             # 设置离线模式环境变量
-            import os
             old_offline = os.environ.get("HF_DATASETS_OFFLINE", None)
             os.environ["HF_DATASETS_OFFLINE"] = "1"
             try:
                 if hf_config:
-                    return load_dataset(hf_id, hf_config)
+                    return load_dataset(hf_id, hf_config, **load_kwargs)
                 else:
-                    return load_dataset(hf_id)
+                    return load_dataset(hf_id, **load_kwargs)
             finally:
                 # 恢复环境变量
                 if old_offline is None:
@@ -441,41 +501,48 @@ def load_dataset_by_name(data_name: str):
                     os.environ["HF_DATASETS_OFFLINE"] = old_offline
     
     # 先尝试离线模式加载（跳过网络检查）
-    import os
     os.environ["HF_DATASETS_OFFLINE"] = "1"
     try:
         if hf_config:
             print(f"[Data] 加载数据集 (离线优先): {data_name} ({config['hf_id']}/{hf_config})")
-            dataset = load_dataset(config["hf_id"], hf_config)
+            dataset = load_dataset(config["hf_id"], hf_config, **load_kwargs)
         else:
             print(f"[Data] 加载数据集 (离线优先): {data_name} ({config['hf_id']})")
-            dataset = load_dataset(config["hf_id"])
+            dataset = load_dataset(config["hf_id"], **load_kwargs)
         print(f"[Data] ✓ 从本地缓存加载成功")
     except Exception as e:
         print(f"[Data] 本地缓存不存在，尝试在线加载: {e}")
         os.environ.pop("HF_DATASETS_OFFLINE", None)
         if hf_config:
-            dataset = load_dataset(config["hf_id"], hf_config)
+            dataset = load_dataset(config["hf_id"], hf_config, **load_kwargs)
         else:
-            dataset = load_dataset(config["hf_id"])
+            dataset = load_dataset(config["hf_id"], **load_kwargs)
     finally:
         os.environ.pop("HF_DATASETS_OFFLINE", None)
-    
-    if config["split"] == "all":
+
+    resolved_config = resolve_config_for_source("hf")
+
+    if resolved_config["split"] == "all":
         # 特殊处理：合并所有 split
         test_set = concatenate_datasets([dataset["train"], dataset["test"]])
-    elif config["split"] in dataset:
-        test_set = dataset[config["split"]]
+    elif resolved_config["split"] in dataset:
+        test_set = dataset[resolved_config["split"]]
     else:
         available_splits = list(dataset.keys())
         if len(available_splits) == 1:
             fallback_split = available_splits[0]
-            print(f"[Data] 配置 split={config['split']} 不存在，回退到唯一 split: {fallback_split}")
+            print(
+                f"[Data] 配置 split={resolved_config['split']} 不存在，"
+                f"回退到唯一 split: {fallback_split}"
+            )
             test_set = dataset[fallback_split]
         else:
-            raise KeyError(f"数据集 {data_name} 不存在 split={config['split']}，可用: {available_splits}")
+            raise KeyError(
+                f"数据集 {data_name} 不存在 split={resolved_config['split']}，"
+                f"可用: {available_splits}"
+            )
     
-    return test_set, config
+    return test_set, resolved_config
 
 
 def prepare_questions_and_answers(test_set, config):

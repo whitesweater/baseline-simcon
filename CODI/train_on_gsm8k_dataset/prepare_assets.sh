@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--models llama1b llama3b llama8b qwen3] [--skip-datasets] [--force-datasets]"
+      echo "Usage: $0 [--models llama1b llama3b llama8b qwen3 qwen3_1p7b] [--skip-datasets] [--force-datasets]"
       exit 1
       ;;
   esac
@@ -149,6 +149,8 @@ Next commands:
   bash CODI/train_on_gsm8k_dataset/train_llama8b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b.sh
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b_codi.sh
 
 These training scripts now auto-scan all saved checkpoints on:
   ${DATASETS[*]}
@@ -160,6 +162,10 @@ Primary rebuttal train_* entry points run one SIM-CoT variant at a time:
 Optional Qwen3-4B CODI entry:
   default: codi
   pass --sircl or --variant codi_sircl for codi_sircl
+
+Optional Qwen3-1.7B entry points:
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b.sh
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b_codi.sh
 
 Manual single-checkpoint eval fallback:
   bash CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh <ckpt_dir>

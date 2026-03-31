@@ -1,47 +1,51 @@
-# 论文图表生成脚本
+# CODI Plot And Analysis Scripts
 
-## 📁 文件结构
+## Main Layout
 
-- `color_config.py` - 统一的颜色配置文件（5种主题颜色）
-- `plot_ablation.py` - 消融实验可视化脚本
-- `results/` - 生成的图表保存目录
+- `color_config.py` - shared plotting colors
+- `plot_ablation.py`, `plot_gsm8k_comparison.py`, `plot_latent_sweep.py` - paper and sweep figures
+- `analyze_latent_collapse.py` - collapse diagnostics added for rebuttal
+- `analyze_centroid_reference.py` - centroid-reference probing and offline intervention
+- `analyze_sircl_failure_modes.py` - baseline-wrong vs recovered/regressed boundary analysis
+- `analyze_trajectory_by_correctness.py` - correctness-stratified trajectory geometry
+- `plot_scaling_stability.py` - matched no-SIRCL vs +SIRCL scaling summary
+- `results/` - generated figures, CSV, JSON, and markdown reports
+- `rebuttal_20260328/` - single landing zone for the five rebuttal-only tools and their outputs
 
-## 🎨 颜色方案
+## Rebuttal Workspace
 
-所有图表使用统一的5种颜色：
-1. **青绿色** (128, 216, 207) - Teal
-2. **粉红色** (255, 159, 159) - Pink
-3. **浅橙色** (255, 221, 147) - Orange
-4. **浅蓝色** (153, 200, 254) - Blue
-5. **深紫色** (152, 154, 202) - Purple
+If you only care about the rebuttal materials, start here:
 
-## 🚀 使用方法
+- `rebuttal_20260328/README.md`
 
-### 生成消融实验图表
+That workspace groups the five new rebuttal analysis tools together with:
 
-```bash
-cd plots
-python plot_ablation.py
-```
+- the exact script used
+- the corresponding result directory or directories
+- the closest report or interpretation note
+- a short local README for each rebuttal point
 
-### 在其他脚本中使用统一配色
+## Shared Color Config
+
+The plotting scripts reuse the same palette from `color_config.py`.
+
+Example:
 
 ```python
 from color_config import COLOR_LIST, COLORS, LINE_COLOR
 
-# 使用颜色列表
 plt.bar(x, y, color=COLOR_LIST[0])
-
-# 使用命名颜色
-plt.plot(x, y, color=COLORS['purple'])
+plt.plot(x, y, color=COLORS["purple"])
 ```
 
-## 📊 可用图表类型
+## Typical Usage
 
-1. **柱状图** - `plot_gsm8k_ablation()`
-2. **折线图** - `plot_gsm8k_ablation_line()`
-3. **组合图** - `plot_gsm8k_ablation_combo()` (柱状+折线)
+```bash
+cd CODI/plots
+python plot_ablation.py
+```
 
-## 📝 添加新图表
-
-在 `plots/` 目录下创建新的脚本文件，导入 `color_config` 使用统一配色。
+```bash
+cd CODI/plots
+python plot_scaling_stability.py --preset latent_sweep_simcon --output-dir results/rebuttal_scaling_simcon_20260328
+```

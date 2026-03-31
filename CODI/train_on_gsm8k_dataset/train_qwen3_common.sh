@@ -25,24 +25,8 @@ fi
 # shellcheck disable=SC1091
 source "${CODI_VENV_PATH}"
 
-MODEL_KEY="qwen3"
-MODEL_DISPLAY_NAME="Qwen3-4B"
-MODEL_PATH="${CODI_MM_QWEN3_PATH}"
-MODEL_NAME="${MODEL_PATH##*/}"
-MODEL_MANIFEST_PATH="${CODI_MULTIMODEL_MANIFEST_DIR}/${MODEL_NAME}.manifest.json"
-EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_4b"
 SEED=11
-MODEL_MAX_LENGTH=512
-PER_DEVICE_BATCH_DEFAULT=16
-GRAD_ACC_DEFAULT=1
-NUM_EPOCHS_DEFAULT=10
-LEARNING_RATE=0.0003
-PRJ_DIM=2560
-NUM_LATENT=6
-PRINT_REF_MODEL_STATS=False
-SAVE_STRATEGY_DEFAULT="epoch"
-SAVE_STEPS_DEFAULT=100
-DEFAULT_EVAL_BATCH_SIZE=8
+QWEN3_MODEL_KEY="${CODI_QWEN3_MODEL_KEY:-qwen3_4b}"
 
 case "${CODI_QWEN3_METHOD_FAMILY}" in
   simcon)
@@ -68,6 +52,64 @@ case "${CODI_QWEN3_METHOD_FAMILY}" in
     exit 1
     ;;
 esac
+
+MODEL_KEY=""
+MODEL_DISPLAY_NAME=""
+MODEL_PATH=""
+EXPT_PREFIX=""
+MODEL_MAX_LENGTH=512
+LEARNING_RATE=0.0003
+PRJ_DIM=0
+NUM_LATENT=6
+PRINT_REF_MODEL_STATS=False
+SAVE_STRATEGY_DEFAULT="epoch"
+SAVE_STEPS_DEFAULT=100
+DEFAULT_EVAL_BATCH_SIZE=8
+PER_DEVICE_BATCH_DEFAULT=0
+GRAD_ACC_DEFAULT=0
+NUM_EPOCHS_DEFAULT=0
+
+case "${QWEN3_MODEL_KEY}" in
+  qwen3|qwen3_4b)
+    MODEL_KEY="qwen3"
+    MODEL_DISPLAY_NAME="Qwen3-4B"
+    MODEL_PATH="${CODI_MM_QWEN3_PATH}"
+    EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_4b"
+    PRJ_DIM=2560
+    DEFAULT_EVAL_BATCH_SIZE=8
+    PER_DEVICE_BATCH_DEFAULT=8
+    GRAD_ACC_DEFAULT=2
+    NUM_EPOCHS_DEFAULT=8
+    ;;
+  qwen3_1p7b)
+    MODEL_KEY="qwen3_1p7b"
+    MODEL_DISPLAY_NAME="Qwen3-1.7B"
+    MODEL_PATH="${CODI_MM_QWEN3_1P7B_PATH}"
+    EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_1p7b"
+    PRJ_DIM=2048
+    DEFAULT_EVAL_BATCH_SIZE=16
+    PER_DEVICE_BATCH_DEFAULT=16
+    GRAD_ACC_DEFAULT=2
+    case "${CODI_QWEN3_METHOD_FAMILY}" in
+      simcon)
+        NUM_EPOCHS_DEFAULT=10
+        ;;
+      codi)
+        NUM_EPOCHS_DEFAULT=8
+        ;;
+    esac
+    # If this still runs tight on a specific machine, preserve the same
+    # effective global batch with: --per-device-batch 8 --grad-acc 4
+    ;;
+  *)
+    echo "Error: unsupported CODI_QWEN3_MODEL_KEY=${QWEN3_MODEL_KEY}"
+    echo "Supported model keys: qwen3_4b, qwen3_1p7b"
+    exit 1
+    ;;
+esac
+
+MODEL_NAME="${MODEL_PATH##*/}"
+MODEL_MANIFEST_PATH="${CODI_MULTIMODEL_MANIFEST_DIR}/${MODEL_NAME}.manifest.json"
 
 FORCE_SINGLE_GPU=0
 PER_DEVICE_BATCH_OVERRIDE=""
@@ -162,6 +204,40 @@ validate_runtime_state() {
   require_command python
   require_command torchrun
   run_qwen3_preflight
+}
+
+warn_missing_runtime_state_for_dry_run() {
+  local missing=0
+  local path
+  local description
+
+  for entry in \
+    "${CODI_VENV_PATH}:CODI_VENV_PATH" \
+    "${CODI_RUN_ROOT}:CODI_RUN_ROOT" \
+    "${CODI_MULTIMODEL_ROOT}:CODI_MULTIMODEL_ROOT" \
+    "${MODEL_PATH}:${MODEL_DISPLAY_NAME} model directory" \
+    "${MODEL_PATH}/config.json:${MODEL_DISPLAY_NAME} config.json" \
+    "${MODEL_MANIFEST_PATH}:${MODEL_DISPLAY_NAME} manifest"; do
+    path="${entry%%:*}"
+    description="${entry#*:}"
+    if [[ ! -e "${path}" ]]; then
+      echo "[dry-run][warn] missing ${description}: ${path}"
+      missing=1
+    fi
+  done
+
+  for name in python torchrun; do
+    if ! command -v "${name}" >/dev/null 2>&1; then
+      echo "[dry-run][warn] required command is not available: ${name}"
+      missing=1
+    fi
+  done
+
+  if (( missing == 0 )); then
+    run_qwen3_preflight
+  else
+    echo "[dry-run] runtime validation skipped because stage assets are not fully ready yet"
+  fi
 }
 
 print_command() {
@@ -368,6 +444,7 @@ run_variant() {
   echo "Model name            : ${MODEL_DISPLAY_NAME}"
   echo "Model path            : ${MODEL_PATH}"
   echo "Manifest path         : ${MODEL_MANIFEST_PATH}"
+  echo "Model key             : ${QWEN3_MODEL_KEY}"
   echo "Output dir            : ${CODI_SAVE_DIR}"
   echo "Result dir            : ${CODI_RESULT_DIR}"
   echo "Cache dir             : ${CODI_CACHE_DIR}"
@@ -381,6 +458,9 @@ run_variant() {
   echo "Grad accum (base)     : ${GRAD_ACC}"
   echo "Grad accum (effective): ${GRAD_ACC_EFFECTIVE}"
   echo "Num epochs            : ${NUM_EPOCHS}"
+  echo "Learning rate         : ${LEARNING_RATE}"
+  echo "Projection dim        : ${PRJ_DIM}"
+  echo "Eval batch size       : ${EVAL_BATCH_SIZE}"
   echo "Max steps override    : ${MAX_STEPS_OVERRIDE:-<epoch-controlled>}"
   echo "Global batch effective: ${GLOBAL_BATCH_EFFECTIVE}"
   echo "Master port           : ${master_port}"
@@ -553,13 +633,19 @@ fi
 GRAD_ACC_EFFECTIVE=$((GRAD_ACC * TARGET_NPROC_PER_NODE / NPROC_PER_NODE))
 GLOBAL_BATCH_EFFECTIVE=$((PER_DEVICE_BATCH * NPROC_PER_NODE * GRAD_ACC_EFFECTIVE))
 
-validate_runtime_state
+if [[ "${DRY_RUN}" == "1" ]]; then
+  warn_missing_runtime_state_for_dry_run
+else
+  validate_runtime_state
+fi
 
 echo "=================================================================="
 echo "Selected variant      : ${VARIANT}"
+echo "Selected model key    : ${QWEN3_MODEL_KEY}"
 echo "Model name            : ${MODEL_DISPLAY_NAME}"
 echo "Model path            : ${MODEL_PATH}"
 echo "Manifest path         : ${MODEL_MANIFEST_PATH}"
+echo "Projection dim        : ${PRJ_DIM}"
 echo "Base master port      : ${BASE_MASTER_PORT}"
 echo "SIRCL master port     : ${SIRCL_MASTER_PORT}"
 echo "SIRCL loss factor     : ${SIRCL_LOSS_FACTOR}"

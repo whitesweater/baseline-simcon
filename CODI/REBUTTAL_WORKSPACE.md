@@ -32,6 +32,7 @@ source config.env
 - `train_on_gsm8k_dataset/train_llama3b.sh`
 - `train_on_gsm8k_dataset/train_llama8b.sh`
 - `train_on_gsm8k_dataset/train_qwen3.sh`
+- `train_on_gsm8k_dataset/train_qwen3_codi.sh`（可选 Qwen3-4B CODI / CODI+SIRCL 入口）
 - `train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
 如果你是从旧文档跳转到这里，请改为先阅读：

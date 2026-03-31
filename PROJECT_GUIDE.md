@@ -199,7 +199,7 @@ SIRCL 在本项目中的定位是：
 截至 2026-03-24，这轮 rebuttal 默认新增的工作重点是：
 
 - 在 `GSM8K / icot` 主训练口径上扩展更多 backbone
-- 当前新增 backbone 以 `llama3b`、`llama8b`、`qwen3` 为主
+- 当前新增 backbone 以 `llama3b`、`llama8b`、`Qwen3-4B` 为主
 - 保持 `llama1b` 主线不丢，同时补 `math500`、`aime` 额外评测
 - 默认硬件配置按 `1 台机器 × 4 张 H800 80GB` 写脚本
 - 如果有多台机器，默认是一台机器跑一个 job
@@ -211,12 +211,18 @@ SIRCL 在本项目中的定位是：
 - `CODI/train_on_gsm8k_dataset/train_llama3b.sh`
 - `CODI/train_on_gsm8k_dataset/train_llama8b.sh`
 - `CODI/train_on_gsm8k_dataset/train_qwen3.sh`
+- `CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh`
 - `CODI/train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
-这些 `train_*.sh` 当前默认每次只训练一条方法线：
+其中 rebuttal 主线的 `train_*.sh` 当前默认每次只训练一条 SIM-CoT 方法线：
 
 - 默认：`simcon`
 - 显式传参后可切换到：`simcon_sircl`
+
+额外的 `train_qwen3_codi.sh` 是并行可选入口，用于：
+
+- 默认：`codi`
+- 显式传参后切到：`codi_sircl`
 
 与历史 `CODI/scripts/*.sh` 相比，这套入口额外做了几件事：
 
