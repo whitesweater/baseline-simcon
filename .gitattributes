@@ -1,2 +1,4 @@
 # Track versioned Coconut small-data assets with Git LFS.
 Coconut/data/*.json filter=lfs diff=lfs merge=lfs -text
+CODI_rebuttal_runs/rebuttal_20260325/manual_eval_best_ckpts/llama3b_simcot_ckpt53982_aime_svamp/** filter=lfs diff=lfs merge=lfs -text
+CODI_rebuttal_runs/rebuttal_20260325/manual_eval_best_ckpts/llama3b_simcot_sircl_ckpt53982_aime_svamp/** filter=lfs diff=lfs merge=lfs -text
