@@ -1,5 +1,5 @@
 method,backbone,source,progress,eval,latest_ckpt,gsm8k,math500,aime,gsm_hard,asdiv,best_ckpt_avg,best_avg,notes
-cot-sft,llama3-3b,Coconut,"train complete (checkpoint_25 present)","gsm8k only; all-eval interrupted",checkpoint_25,72.40%,-,-,-,-,-,-,"checkpoint_25 的 batch all-eval 先跑出 GSM8K 955/1319，随后在 gsm_hard 因数据类型问题中断"
+cot-sft,llama3-3b,Coconut,"train complete (checkpoint_25 present)","single-ckpt multi-dataset results",checkpoint_25,72.40%,8.40%,0.00%,20.24%,2.00%,-,-,"2026-03-29 的 batch all-eval 先跑出 GSM8K 955/1319，随后在 gsm_hard 因数据类型问题中断；2026-03-31 已对同一 checkpoint_25 补跑 gsm_hard/svamp/math500/asdiv/aime，其中 SVAMP = 74.40% (744/1000)；当前无 live multi_arith 产物"
 cot-sft,qwen3-4b,Coconut,"train complete (checkpoint_25 present)","gsm8k only; all-eval failed",checkpoint_25,73.62%,-,-,-,-,-,-,"当前可汇报 GSM8K 来自 checkpoint_24 单独评测；batch all-eval 启动即撞上 port 29500 already in use"
 simcot,llama3-3b,offline-side,"9/10 epoch (53982/59980)",sweep complete,ckpt-53982,59.97%,6.80%,0.00%,14.18%,72.41%,ckpt-53982,30.67%,"更深 offline-side run 的 9 个 checkpoint 已全部 sweep 完成；当前最佳即 ckpt-53982，主线同名 run 仍只到 ckpt-11996。2026-03-31 手工补测已补上 ckpt-53982 的 svamp/aime：SVAMP 75.50% (151/200)，AIME 0.00% (0/30)"
 simcot,qwen3-4b,main,no checkpoint,no sweep,-,-,-,-,-,-,-,-,"目前只有 ep_8/ep_10 目录骨架，没有实际 checkpoint"

@@ -10,7 +10,7 @@
 
 ## 一句话结论
 
-- `llama3-3b` 仍然是最完整、最稳、最适合写进 rebuttal 主表的 backbone，而且主线 `codi` 新 summary 已补齐，当前 live `Best avg = 39.06%`，是现有 summary 里最高的一条。
+- `llama3-3b` 仍然是最完整、最稳、最适合写进 rebuttal 主表的 backbone，而且主线 `codi` 新 summary 已补齐，当前 live `Best avg = 39.06%`，是现有 summary 里最高的一条；与此同时，`cot-sft` 也已经补成 `checkpoint_25` 的单 checkpoint 多数据集结果线。
 - `qwen3-1.7b` 现在不再只有一条可用 implicit 线：`codi = 30.57%` 之外，`simcot` 也已经补成完整 sweep，`Best avg = 26.86%`；但 `simcot+sircl` 仍然接近塌缩，`cot-sft` 则是训练完成但 batch eval 失败。
 - `qwen3-4b` 目前依然不是正面故事：`cot-sft` 只有单数据集 GSM8K，可完成的 implicit sweep 只有 `codi+sircl` 一条，而且结果异常低。
 
@@ -18,7 +18,7 @@
 
 | Backbone | 当前可汇报情况 | 当前最强结果 | 当前判断 |
 | --- | --- | --- | --- |
-| `llama3-3b` | 5/5 方法都有可汇报信息，其中 4 条已有 checkpoint summary，1 条 `gsm8k only` | `codi`，`Best avg = 39.06%` | 当前最完整、最稳的主 backbone |
+| `llama3-3b` | 5/5 方法都有可汇报信息，其中 4 条已有 checkpoint summary，1 条 `single-ckpt multi-dataset` | `codi`，`Best avg = 39.06%` | 当前最完整、最稳的主 backbone |
 | `qwen3-1.7b` | 3 条 implicit 线已有多数据集 summary，其中 2 条 `sweep complete`、1 条 `partial sweep`；`cot-sft` 训练完成但 all-eval 失败 | `codi`，`Best avg = 30.57%` | 已有可用补充证据，但方法敏感性很强 |
 | `qwen3-4b` | 1 条 `gsm8k only`，1 条异常低的 implicit sweep，1 条只有 checkpoint 未 sweep，剩余 2 条无 checkpoint | `cot-sft`，`GSM8K = 73.62%` | 不适合作为 implicit 主故事 |
 
@@ -26,7 +26,7 @@
 
 | 方法 | 当前状态 | 最新/最佳 ckpt | GSM8K | MATH500 | AIME | SVAMP | GSM-HARD | ASDIV | Best avg |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `cot-sft` | 只有 `gsm8k` 可汇报 | `checkpoint_25` | `72.40%` | `-` | `-` | `-` | `-` | `-` | `-` |
+| `cot-sft` | `checkpoint_25` 多数据集可汇报 | `checkpoint_25` | `72.40%` | `8.40%` | `0.00%` | `74.40%` | `20.24%` | `2.00%` | `-` |
 | `simcot` | `sweep complete` | `ckpt-53982` | `59.97%` | `6.80%` | `0.00%` | `75.50%` | `14.18%` | `72.41%` | `30.67%` |
 | `simcot+sircl` | `sweep complete` | 最新 `ckpt-59980`，最佳 `ckpt-53982` | `63.23%` | `6.40%` | `0.00%` | `71.00%*` | `15.16%` | `72.23%` | `31.55%` |
 | `codi` | `sweep complete` | 最新 `ckpt-31992`，最佳 `ckpt-27993` | `60.50%` | `8.60%` | `0.00%` | `78.00%` | `14.71%` | `72.54%` | `39.06%` |
@@ -36,9 +36,11 @@
 - `llama3-3b` 现在已经不只是 `simcot` / `simcot+sircl` 完整，主线 `codi` 的 main-root summary 也补齐了，而且当前 live `Best avg` 最高。
 - `llama3-3b + codi+sircl` 仍然有 summary，但最佳点已经不在最终 checkpoint，而是在更早的 `ckpt-11997`。
 - 2026-03-31 手工补测把 `llama3-3b` 两条 `ckpt-53982` 的 `svamp` 都补齐了：`simcot = 75.50% (151/200)`，`simcot+sircl = 71.00% (142/200)`；两者在该 checkpoint 的 `aime` 都还是 `0.00% (0/30)`。
+- 2026-03-31 的 Coconut 补测也把 `llama3-3b + cot-sft` 从 `gsm8k only` 提升成了可报 6 个主数据集的 single-ckpt 结果线；但因为没有 checkpoint sweep，这一行仍不和 implicit run 的 `Best avg` 横向比较。
 - 如果 rebuttal 里想强调“当前最完整的一组 live implicit 结果”，`llama3-3b` 现在是最稳的主 backbone。
 
 注：
+- `cot-sft` 的 `SVAMP` 取 `data/svamp_all.json` 的 live JSON `744/1000 = 74.40%`，不使用旁路 `svamp_test_300_coconut` 的 300 题结果。
 - `simcot` / `simcot+sircl` 的 `SVAMP` 来自 2026-03-31 对 `ckpt-53982` 的手工补测。
 - `simcot+sircl` 行里带 `*` 的 `SVAMP` 与 `Best avg` 对齐到最佳 `ckpt-53982`；同一行其他主指标仍保留当前文档原先展示的最新主 sweep 数字。
 

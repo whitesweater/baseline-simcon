@@ -11,6 +11,7 @@
 | LLaMA-3B SIM-CoT | 59.97 | 8.80 | 3.33 | 14.25 | 72.41 | Best per-dataset checkpoint from the deeper offline-side multi-dataset sweep |
 | LLaMA-3B SIM-CoT + SIRCL | 63.31 | 7.20 | 6.67 | 15.16 | 72.28 | Best per-dataset checkpoint from the rebuttal multi-dataset sweep |
 | LLaMA-3B CODI + SIRCL | 52.39 | 7.60 | 0.00 | 12.36 | 72.32 | Best per-dataset checkpoint from the rebuttal multi-dataset sweep |
+| Coconut LLaMA-3B CoT-SFT | 72.40 | 8.40 | 0.00 | 20.24 | 2.00 | Single `checkpoint_25` multi-dataset snapshot; `SVAMP = 74.40` on `svamp_all`; no checkpoint sweep |
 | Coconut Qwen3-4B CoT-SFT | 73.62 | - | - | - | - | GSM8K only; multi-dataset evaluation attempt is not citeable |
 
 ### LLaMA-3B Current Reportable Snapshot
@@ -19,13 +20,15 @@
 
 | 方法 | 当前状态 | 最新/最佳 ckpt | GSM8K | MATH500 | AIME | SVAMP | GSM-HARD | ASDIV | Best avg |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `cot-sft` | 只有 `gsm8k` 可汇报 | `checkpoint_25` | `72.40%` | `-` | `-` | `-` | `-` | `-` | `-` |
+| `cot-sft` | `checkpoint_25` 多数据集可汇报 | `checkpoint_25` | `72.40%` | `8.40%` | `0.00%` | `74.40%` | `20.24%` | `2.00%` | `-` |
 | `simcot` | `sweep complete` | `ckpt-53982` | `59.97%` | `6.80%` | `0.00%` | `75.50%` | `14.18%` | `72.41%` | `30.67%` |
 | `simcot+sircl` | `sweep complete` | 最新 `ckpt-59980`，最佳 `ckpt-53982` | `63.23%` | `6.40%` | `0.00%` | `71.00%*` | `15.16%` | `72.23%` | `31.55%` |
 | `codi` | `sweep complete` | 最新 `ckpt-31992`，最佳 `ckpt-27993` | `60.50%` | `8.60%` | `0.00%` | `78.00%` | `14.71%` | `72.54%` | `39.06%` |
 | `codi+sircl` | `sweep complete` | 最新 `ckpt-47984`，最佳 `ckpt-11997` | `41.47%` | `7.40%` | `0.00%` | `64.50%` | `9.48%` | `67.55%` | `31.73%` |
 
 补充：
+- 2026-03-31 的 Coconut live 补测已把 `llama3-3b + cot-sft` 的 `checkpoint_25` 补成 6 个主数据集结果线：结合 2026-03-29 的 `GSM8K = 955/1319` 日志与 2026-03-31 的单数据集 JSON，当前可直接汇报 `gsm8k/svamp/gsm_hard/math500/asdiv/aime`。
+- `cot-sft` 的 `SVAMP` 取 `data/svamp_all.json` 的 live JSON `744/1000 = 74.40%`，不使用旁路 `svamp_test_300_coconut` 的 300 题结果。
 - 2026-03-31 手工补测已补上 `llama3-3b` 两条 `ckpt-53982` 的 `svamp`：`simcot = 75.50% (151/200)`，`simcot+sircl = 71.00% (142/200)`。
 - 同一 checkpoint 上，两者的 `aime` 都仍为 `0.00% (0/30)`；因此这次补测主要是修复 `svamp` 缺口，而不是改变原有 `aime` 结论。
 - `simcot+sircl` 行里带 `*` 的 `SVAMP` 与 `Best avg` 对齐到最佳 `ckpt-53982`；同一行其他主指标仍保留当前文档原先展示的最新主 sweep 数字。
