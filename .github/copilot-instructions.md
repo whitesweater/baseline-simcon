@@ -5,6 +5,8 @@
 - **Coconut/**：原始 Coconut + SIM-CoT 扩展（GPT-2、LLaMA）
 - **CODI/**：CODI baseline + decoder-based SIM-CoT（LLaMA 1B/3B/8B）
 
+文档入口：`README.md`（仓库总指南）→ `CODI/README.md` → `CODI/TESTING_GUIDE.md`
+
 ## 多机配置（重要）
 CODI 通过 `config.env` 支持多机部署，每台机器维护自己的配置：
 ```bash

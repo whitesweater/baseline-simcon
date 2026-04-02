@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Research codebase for **SIM-CoT** (Supervised Implicit Chain-of-Thought) and **SIRCL** (trajectory stability plugin). Currently in **rebuttal/revision phase**, focused on cross-backbone experiments across LLaMA-1B/3B/8B and Qwen3-4B on math reasoning tasks (GSM8K, Math500, AIME).
 
-Documentation is primarily in Chinese. The project has extensive internal guides — read them in this order: `PROJECT_GUIDE.md` → `NEWCOMER_HANDOVER.md` → `CODI/README.md` → `CODI/TESTING_GUIDE.md`.
+Documentation is primarily in Chinese. Start with `README.md` for project overview, then `CODI/README.md` → `CODI/TESTING_GUIDE.md` for technical details.
 
 ## Repository Layout
 
@@ -120,7 +120,7 @@ Stage workspace env via `CODI/train_on_gsm8k_dataset/env.sh` sets up isolated di
 
 ## Trust Priority (for conflicting information)
 
-Paper final version > `results_useful/` > `PROJECT_GUIDE.md` > `NEWCOMER_HANDOVER.md` > active scripts > legacy `CODI/outputs/`
+Paper final version > `results_useful/` > `README.md` > active scripts > legacy `CODI/outputs/`
 
 ## Package Management
 
