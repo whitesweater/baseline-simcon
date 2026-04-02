@@ -1,0 +1,4 @@
+interface:
+  display_name: "CODI GSM8K Experiments"
+  short_description: "Locate 15 workflows and summarize live rebuttal results"
+  default_prompt: "Use $codi-gsm8k-multibackbone-experiments to locate train and eval commands, artifact paths, and the current reportable status for a specific method-backbone pair or for the full three-backbone matrix."

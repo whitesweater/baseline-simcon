@@ -1,0 +1,4 @@
+interface:
+  display_name: "Baseline HPC2 Runtime"
+  short_description: "Run baseline CODI on HPC2"
+  default_prompt: "Use $baseline-hpc2-codi-runtime to run the baseline CODI workspace on an HPC2 GPU development container, validate the stage assets and environment, launch the right training script, and monitor progress safely."

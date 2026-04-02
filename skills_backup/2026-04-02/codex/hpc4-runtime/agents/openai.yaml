@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC4 Runtime"
+  short_description: "Refresh the live pool, choose a running container, and run safely on HPC4."
+  default_prompt: "Use $hpc4-runtime to decide between hpc4login and AIStudio containers, refresh the current NPU pool when needed, show all running container choices, bind the task to one container, and keep outputs writable under /data/user/user224/proj."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC Login SSH"
+  short_description: "Connect to HPC1-4 login nodes with SSH keys and the right workdir."
+  default_prompt: "Use $hpc-login-ssh to connect to an HPC login node with the local SSH key, the correct per-cluster user, and the correct shared project root."

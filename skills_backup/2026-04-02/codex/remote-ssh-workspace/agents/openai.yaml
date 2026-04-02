@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remote SSH Workspace"
+  short_description: "Connect to remote dev hosts inside approved workdirs"
+  default_prompt: "Use $remote-ssh-workspace to choose the correct SSH host, confirm the allowed workdir, and inspect remote experiment artifacts before summarizing them."

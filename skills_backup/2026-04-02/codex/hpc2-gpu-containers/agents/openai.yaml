@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC2 GPU Containers"
+  short_description: "Log into the HPC2 web desktop and read current Model Develop GPU containers."
+  default_prompt: "Use $hpc2-gpu-containers to log into the HPC2 AppForm desktop, follow the RSA plus SSO portal flow, and summarize the current Model Develop GPU containers without exposing sensitive fields unless explicitly requested."

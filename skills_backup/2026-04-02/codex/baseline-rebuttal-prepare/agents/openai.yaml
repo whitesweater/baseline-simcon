@@ -1,0 +1,4 @@
+interface:
+  display_name: "Baseline Prepare"
+  short_description: "Prepare baseline rebuttal runs"
+  default_prompt: "Use $baseline-rebuttal-prepare to ready the baseline workspace, models, caches, and isolated run directories before training or evaluation."

@@ -1,0 +1,43 @@
+Host hpc1
+  HostName hpc1login.hpc.hkust-gz.edu.cn
+  User yhao481
+  IdentityFile ~/.ssh/id_rsa
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+  TCPKeepAlive yes
+  AddKeysToAgent yes
+
+Host hpc2
+  HostName hpc2login.hpc.hkust-gz.edu.cn
+  User yhao481
+  IdentityFile ~/.ssh/id_rsa
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+  TCPKeepAlive yes
+  AddKeysToAgent yes
+
+Host hpc3
+  HostName hpc3login.hpc.hkust-gz.edu.cn
+  User yhao481
+  IdentityFile ~/.ssh/id_rsa
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+  TCPKeepAlive yes
+  AddKeysToAgent yes
+
+Host hpc4
+  HostName hpc4login.hpc.hkust-gz.edu.cn
+  User user224
+  IdentityFile ~/.ssh/id_rsa
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+  TCPKeepAlive yes
+  AddKeysToAgent yes

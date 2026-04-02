@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC2 GPU Runtime"
+  short_description: "Reach HPC2 GPU dev containers"
+  default_prompt: "Use $hpc2-gpu-runtime to reach HKUST-GZ HPC2 GPU development containers through the validated remote-VPN path, list container states, connect to one running container, and verify GPU runtime health."

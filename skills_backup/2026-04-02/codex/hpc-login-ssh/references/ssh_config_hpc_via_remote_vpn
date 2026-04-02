@@ -1,0 +1,11 @@
+Host hpc2-vpn
+  HostName hpc2login.hpc.hkust-gz.edu.cn
+  User yhao481
+  IdentityFile ~/.ssh/id_rsa
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+  TCPKeepAlive yes
+  AddKeysToAgent yes
+  ProxyCommand ssh -o BatchMode=yes ubuntu@43.134.118.168 nc -x 127.0.0.1:1080 -X 5 %h %p

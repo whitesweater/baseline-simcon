@@ -1,0 +1,4 @@
+interface:
+  display_name: "HPC4 Python Env"
+  short_description: "Default to uv, validate torch_npu, and fall back to Conda only when needed."
+  default_prompt: "Use $hpc4-python-env to set up or repair a project-local Python environment under /data/user/user224/proj, default to uv with a shared uv cache, validate torch_npu with real NPU ops, and only use the Conda route when uv is not the right choice."
