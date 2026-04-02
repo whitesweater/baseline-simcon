@@ -256,3 +256,6 @@ paper/
 CODI/plots/results/
 imported_skills/
 anthropic-ai-claude-code-2.1.88.tgz
+skills_backup/
+CODI/logs/
+mihomo-linux-amd64-v3-v1.19.22.gz
