@@ -80,7 +80,9 @@ def load_gsm8k_aug_dataset(split: str):
     return load_dataset(hf_id, split=split, cache_dir=cache_dir)
 
 
-DEFAULT_TOKENIZED_CACHE_DIR = "/data/yhao/hf_datasets_cache/tokenized"
+DEFAULT_TOKENIZED_CACHE_DIR = os.path.join(
+    os.environ.get("CODI_CACHE_DIR", "/tmp"), "tokenized"
+)
 
 
 def _build_cache_key(**kwargs) -> str:
