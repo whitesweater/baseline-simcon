@@ -54,12 +54,14 @@ class TrajectoryGeodesicDeviationCore:
         geodesic = self.geo.mobius_add(z_start.unsqueeze(1), exp_vt)  # [B,T,D]
         return geodesic
 
-    def loss(self, X: torch.Tensor) -> torch.Tensor:
+    def loss(self, X: torch.Tensor, deviation_threshold: float = 0.0) -> torch.Tensor:
         """
-        Geodesic deviation loss (hyperbolic distance).
+        Geodesic deviation loss (hyperbolic distance) with optional hinge.
 
         Args:
             X: [B,T,D]
+            deviation_threshold: hinge threshold; deviations within this
+                                 range incur zero loss (default 0.0 = no hinge)
         Returns:
             scalar loss
         """
@@ -73,6 +75,8 @@ class TrajectoryGeodesicDeviationCore:
         z_end = Xn[:, -1, :]
         geodesic = self.compute_geodesic(z_start, z_end, Xn.size(1))  # [B,T,D]
         deviation = self.geo.distance(Xn, geodesic)  # [B,T]
+        if deviation_threshold > 0.0:
+            deviation = torch.clamp(deviation - deviation_threshold, min=0.0)
         return deviation.mean()
 
 
@@ -84,9 +88,11 @@ class TrajectoryGeodesicDeviationLoss(nn.Module):
     Internally transposed to [B,T,D] for computation.
     """
 
-    def __init__(self, curvature: float = -1.0, eps: float = 1e-8):
+    def __init__(self, curvature: float = -1.0, eps: float = 1e-8,
+                 deviation_threshold: float = 0.0):
         super().__init__()
         self.core = TrajectoryGeodesicDeviationCore(curvature=curvature, eps=eps)
+        self.deviation_threshold = deviation_threshold
 
     def forward(self, latent_embeddings: torch.Tensor) -> torch.Tensor:
         if latent_embeddings.dim() != 3:
@@ -95,7 +101,7 @@ class TrajectoryGeodesicDeviationLoss(nn.Module):
                 f"Shape: {latent_embeddings.shape}"
             )
         X = latent_embeddings.transpose(0, 1)
-        return self.core.loss(X)
+        return self.core.loss(X, deviation_threshold=self.deviation_threshold)
 
     @torch.no_grad()
     def compute_stats(self, latent_embeddings: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -110,14 +116,27 @@ class TrajectoryGeodesicDeviationLoss(nn.Module):
                 "deviation": X.new_zeros((X.size(0), 0)),
                 "deviation_mean": zero,
                 "deviation_max": zero,
+                "excess_deviation": X.new_zeros((X.size(0), 0)),
+                "excess_deviation_mean": zero,
+                "excess_deviation_max": zero,
+                "violation_rate": zero,
+                "deviation_threshold": zero,
             }
         Xn = self.core.geo.project(self.core.geo._safe_normalize(X))
         z_start = Xn[:, 0, :]
         z_end = Xn[:, -1, :]
         geodesic = self.core.compute_geodesic(z_start, z_end, Xn.size(1))
         deviation = self.core.geo.distance(Xn, geodesic)
+        threshold = deviation.new_tensor(self.deviation_threshold)
+        excess_deviation = torch.clamp(deviation - threshold, min=0.0)
+        violation_rate = (deviation > threshold).to(deviation.dtype).mean()
         return {
             "deviation": deviation,
             "deviation_mean": deviation.mean(),
             "deviation_max": deviation.max(),
+            "excess_deviation": excess_deviation,
+            "excess_deviation_mean": excess_deviation.mean(),
+            "excess_deviation_max": excess_deviation.max(),
+            "violation_rate": violation_rate,
+            "deviation_threshold": threshold,
         }

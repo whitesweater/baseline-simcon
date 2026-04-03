@@ -147,6 +147,75 @@ def _stack_latents(latent_embeddings_for_consistency):
     return torch.stack(latent_embeddings_for_consistency, dim=0)  # [T,B,D]
 
 
+def _slice_eval_set(test_set, max_examples):
+    if max_examples is None or max_examples <= 0:
+        return test_set
+    max_examples = min(len(test_set), max_examples)
+    if hasattr(test_set, "select"):
+        return test_set.select(range(max_examples))
+    return test_set[:max_examples]
+
+
+def summarize_latent_losses(latents_TBD, training_args, step, batch_size, do_print):
+    tc = TrajectoryConsistencyLoss(
+        space_type=training_args.trajectory_space_type,
+        radius_threshold=training_args.trajectory_radius_threshold,
+        curvature=training_args.trajectory_curvature,
+    )
+    tg = TrajectoryGeodesicDeviationLoss(
+        curvature=training_args.trajectory_curvature,
+        deviation_threshold=getattr(training_args, 'trajectory_geodesic_deviation_threshold', 0.0),
+    )
+
+    radius_stats = tc.compute_stats(latents_TBD)
+    geodesic_stats = tg.compute_stats(latents_TBD)
+    radius_loss = tc(latents_TBD)
+    geodesic_loss = tg(latents_TBD)
+    radius_excess = torch.clamp(
+        radius_stats['dist'] - radius_stats['radius_threshold'],
+        min=0.0,
+    )
+
+    if do_print:
+        print(
+            f"[RadiusLoss] batch={step} loss={radius_loss.item():.4f} "
+            f"mean={radius_stats['radius_mean'].item():.4f} "
+            f"max={radius_stats['radius_max'].item():.4f} "
+            f"excess_mean={radius_excess.mean().item():.4f} "
+            f"excess_max={radius_excess.max().item():.4f} "
+            f"viol_rate={radius_stats['violation_rate'].item():.4f} "
+            f"thr={radius_stats['radius_threshold'].item():.4f}"
+        )
+        print(
+            f"[GeodesicLoss] batch={step} loss={geodesic_loss.item():.4f} "
+            f"dev_mean={geodesic_stats['deviation_mean'].item():.4f} "
+            f"dev_max={geodesic_stats['deviation_max'].item():.4f} "
+            f"excess_mean={geodesic_stats['excess_deviation_mean'].item():.4f} "
+            f"excess_max={geodesic_stats['excess_deviation_max'].item():.4f} "
+            f"viol_rate={geodesic_stats['violation_rate'].item():.4f} "
+            f"thr={geodesic_stats['deviation_threshold'].item():.4f}"
+        )
+
+    return {
+        "radius_loss": float(radius_loss.item()),
+        "radius_mean": float(radius_stats['radius_mean'].item()),
+        "radius_max": float(radius_stats['radius_max'].item()),
+        "radius_excess_mean": float(radius_excess.mean().item()),
+        "radius_excess_max": float(radius_excess.max().item()),
+        "radius_violation_rate": float(radius_stats['violation_rate'].item()),
+        "radius_threshold": float(radius_stats['radius_threshold'].item()),
+        "geodesic_loss": float(geodesic_loss.item()),
+        "geodesic_mean": float(geodesic_stats['deviation_mean'].item()),
+        "geodesic_max": float(geodesic_stats['deviation_max'].item()),
+        "geodesic_excess_mean": float(geodesic_stats['excess_deviation_mean'].item()),
+        "geodesic_excess_max": float(geodesic_stats['excess_deviation_max'].item()),
+        "geodesic_violation_rate": float(geodesic_stats['violation_rate'].item()),
+        "geodesic_threshold": float(geodesic_stats['deviation_threshold'].item()),
+        "num_latent_steps": int(latents_TBD.size(0)),
+        "batch_size": int(batch_size),
+    }
+
+
 def log_radius_stats(latents_TBD, training_args, step, batch_size, do_print, radius_log_path):
     try:
         tc = TrajectoryConsistencyLoss(
@@ -242,13 +311,18 @@ def log_action_stats(latents_TBD, training_args, step, batch_size, do_print, act
 def log_geodesic_stats(latents_TBD, training_args, step, batch_size, do_print, geodesic_log_path):
     try:
         tg = TrajectoryGeodesicDeviationLoss(
-            curvature=training_args.trajectory_curvature
+            curvature=training_args.trajectory_curvature,
+            deviation_threshold=getattr(training_args, 'trajectory_geodesic_deviation_threshold', 0.0),
         )
         geo_stats = tg.compute_stats(latents_TBD)
         if do_print:
             print(
                 f"[Geodesic] batch={step} dev_max={geo_stats['deviation_max'].item():.4f} "
-                f"dev_mean={geo_stats['deviation_mean'].item():.4f}"
+                f"dev_mean={geo_stats['deviation_mean'].item():.4f} "
+                f"excess_max={geo_stats['excess_deviation_max'].item():.4f} "
+                f"excess_mean={geo_stats['excess_deviation_mean'].item():.4f} "
+                f"viol_rate={geo_stats['violation_rate'].item():.4f} "
+                f"thr={geo_stats['deviation_threshold'].item():.4f}"
             )
         if geodesic_log_path:
             os.makedirs(os.path.dirname(geodesic_log_path), exist_ok=True)
@@ -256,6 +330,10 @@ def log_geodesic_stats(latents_TBD, training_args, step, batch_size, do_print, g
                 "batch": int(step),
                 "deviation_max": float(geo_stats['deviation_max'].item()),
                 "deviation_mean": float(geo_stats['deviation_mean'].item()),
+                "excess_deviation_max": float(geo_stats['excess_deviation_max'].item()),
+                "excess_deviation_mean": float(geo_stats['excess_deviation_mean'].item()),
+                "violation_rate": float(geo_stats['violation_rate'].item()),
+                "deviation_threshold": float(geo_stats['deviation_threshold'].item()),
                 "num_latent_steps": int(latents_TBD.size(0)),
                 "batch_size": int(batch_size),
             })
@@ -389,6 +467,10 @@ def evaluation(model_args, data_args, training_args):
     else:
         raise NotImplementedError
 
+    if training_args.exp_mode:
+        test_set = _slice_eval_set(test_set, training_args.exp_data_num)
+        logging.warning(f"[Eval] exp_mode enabled, using first {len(test_set)} examples")
+
     logging.warning("[Eval] Formatting inputs...")
     question = [f"{example[question_name].strip().replace('  ', ' ')}" for example in test_set]
     answer = []
@@ -471,6 +553,7 @@ def evaluation(model_args, data_args, training_args):
     len_cot = []
     model.eval()
     attn_to_latent_list = []
+    latent_loss_summaries = []
     if model_args.soft_weight:
         embedding_matrix = model.codi.get_base_model().model.embed_tokens.weight.data.to(model.codi.device)
         vocab_center = embedding_matrix.mean(dim=0)
@@ -533,6 +616,12 @@ def evaluation(model_args, data_args, training_args):
                 log_accel_stats(latents_TBD, training_args, step, batch_size, do_print, accel_log_path)
                 log_action_stats(latents_TBD, training_args, step, batch_size, do_print, action_log_path)
                 log_geodesic_stats(latents_TBD, training_args, step, batch_size, do_print, geodesic_log_path)
+                latent_loss_summaries.append(
+                    summarize_latent_losses(latents_TBD, training_args, step, batch_size, do_print)
+                )
+
+            if training_args.latent_stats_only:
+                continue
 
             if training_args.remove_eos:
                 eot_emb = model.get_embd(model.codi, model.model_name)(torch.tensor([model.eot_id], dtype=torch.long, device='cuda')).unsqueeze(0).to(device)
@@ -616,6 +705,38 @@ def evaluation(model_args, data_args, training_args):
                     print(f"Prediction={extract_answer_number(decoded_pred, data_args.data_name)}; Groundtruth={answer[step*data_args.batch_size+mini_step]}")
                     print("")
                 ans_pred_list.append(extract_answer_number(decoded_pred, data_args.data_name))
+
+    if training_args.latent_stats_only:
+        if not latent_loss_summaries:
+            print("[LatentStats] No latent summaries collected.")
+            return None
+
+        summary = {
+            key: sum(item[key] for item in latent_loss_summaries) / len(latent_loss_summaries)
+            for key in latent_loss_summaries[0]
+            if key not in {"num_latent_steps", "batch_size"}
+        }
+        summary["num_batches"] = len(latent_loss_summaries)
+        summary["num_latent_steps"] = latent_loss_summaries[0]["num_latent_steps"]
+
+        print(
+            "[LatentStats][Summary] "
+            f"radius_loss={summary['radius_loss']:.4f} "
+            f"radius_mean={summary['radius_mean']:.4f} "
+            f"radius_excess_mean={summary['radius_excess_mean']:.4f} "
+            f"radius_viol_rate={summary['radius_violation_rate']:.4f} "
+            f"radius_thr={summary['radius_threshold']:.4f}"
+        )
+        print(
+            "[LatentStats][Summary] "
+            f"geodesic_loss={summary['geodesic_loss']:.4f} "
+            f"geodesic_mean={summary['geodesic_mean']:.4f} "
+            f"geodesic_excess_mean={summary['geodesic_excess_mean']:.4f} "
+            f"geodesic_viol_rate={summary['geodesic_violation_rate']:.4f} "
+            f"geodesic_thr={summary['geodesic_threshold']:.4f}"
+        )
+        return None
+
     # 保存结果到环境变量指定的目录，按数据集分开
     result_subdir = os.path.join(CODI_RESULT_DIR, data_args.data_name)
     os.makedirs(result_subdir, exist_ok=True)
@@ -702,8 +823,11 @@ if __name__ == "__main__":
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    accu_list = []
-    for i in range(training_args.inf_num_iterations):
-        accu = evaluation(model_args, data_args, training_args)
-        accu_list.append(accu)
-    print(f"Average accuracy over {training_args.inf_num_iterations} sampling: {sum(accu_list)/len(accu_list)}")
+    if training_args.latent_stats_only:
+        evaluation(model_args, data_args, training_args)
+    else:
+        accu_list = []
+        for i in range(training_args.inf_num_iterations):
+            accu = evaluation(model_args, data_args, training_args)
+            accu_list.append(accu)
+        print(f"Average accuracy over {training_args.inf_num_iterations} sampling: {sum(accu_list)/len(accu_list)}")

@@ -124,6 +124,7 @@ class TrainingArguments(transformers.TrainingArguments):
     ref_loss_factor: float = field(default=1.0, metadata={"help": "A multiplier of the distillation loss."})
     inf_latent_iterations: int = field(default=1, metadata={"help": ""})
     inf_num_iterations: int = field(default=5, metadata={"help": "Run multiple times during inference"})
+    latent_stats_only: bool = field(default=False, metadata={"help": "Only compute latent trajectory statistics/losses during evaluation and skip answer decoding."})
     remove_eos: bool = field(default=False, metadata={"help": "Do not add <eos> as a delimiter to split QA."})
     print_ref_model_stats: bool = field(default=False, metadata={"help": "Print some stats for the teacher task."})
     include_last_cot: bool = field(default=False, metadata={"help": "Include the last CoT step in the training data."})
@@ -145,6 +146,7 @@ class TrainingArguments(transformers.TrainingArguments):
     trajectory_action_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the least action loss."})
     use_trajectory_geodesic: bool = field(default=False, metadata={"help": "Use geodesic deviation loss."})
     trajectory_geodesic_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the geodesic deviation loss."})
+    trajectory_geodesic_deviation_threshold: float = field(default=0.0, metadata={"help": "Hinge threshold for geodesic deviation loss. Deviations within this range incur zero loss."})
     use_rank_diversity: bool = field(default=False, metadata={"help": "Use rank diversity loss to prevent latent token rank collapse."})
     rank_diversity_mode: str = field(default="svd_entropy", metadata={"help": "Rank diversity loss mode: 'svd_entropy', 'cosine', or 'combined'."})
     rank_diversity_loss_factor: float = field(default=0.1, metadata={"help": "A multiplier of the rank diversity loss."})
@@ -472,7 +474,8 @@ class CODI(torch.nn.Module):
         self.trajectory_geodesic_loss_factor = training_args.trajectory_geodesic_loss_factor
         if self.use_trajectory_geodesic:
             self.trajectory_geodesic_loss = TrajectoryGeodesicDeviationLoss(
-                curvature=training_args.trajectory_curvature
+                curvature=training_args.trajectory_curvature,
+                deviation_threshold=training_args.trajectory_geodesic_deviation_threshold,
             )
 
         # Rank Diversity Loss (prevents latent token rank collapse)
