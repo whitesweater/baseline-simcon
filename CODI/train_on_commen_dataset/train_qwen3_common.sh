@@ -1,20 +1,11 @@
 #!/bin/bash
-
-if [[ -z "${CODI_QWEN3_METHOD_FAMILY:-}" ]]; then
-  echo "Error: CODI_QWEN3_METHOD_FAMILY is not set. Use train_qwen3.sh or train_qwen3_codi.sh."
-  exit 1
-fi
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODI_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENTRY_SCRIPT_PATH="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
 ENTRY_SCRIPT_NAME="$(basename "${ENTRY_SCRIPT_PATH}")"
 
-# shellcheck disable=SC1091
-source "${CODI_DIR}/config.env" || { echo "Error: config.env not found. Copy config.env.example to config.env and configure."; exit 1; }
-USER_HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-}"
-USER_HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-}"
-USER_HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/env.sh"
 
@@ -26,32 +17,15 @@ fi
 source "${CODI_VENV_PATH}"
 
 SEED=11
-QWEN3_MODEL_KEY="${CODI_QWEN3_MODEL_KEY:-qwen3_4b}"
-
-case "${CODI_QWEN3_METHOD_FAMILY}" in
-  simcon)
-    VARIANT="${CODI_METHOD_VARIANT:-simcon}"
-    BASE_VARIANT_NAME="simcon"
-    SIRCL_VARIANT_NAME="simcon_sircl"
-    VARIANT_USAGE="simcon|simcon_sircl"
-    USE_DECODER="True"
-    BASE_MASTER_PORT_DEFAULT=22507
-    SIRCL_MASTER_PORT_DEFAULT=22508
-    ;;
-  codi)
-    VARIANT="${CODI_METHOD_VARIANT:-codi}"
-    BASE_VARIANT_NAME="codi"
-    SIRCL_VARIANT_NAME="codi_sircl"
-    VARIANT_USAGE="codi|codi_sircl"
-    USE_DECODER="False"
-    BASE_MASTER_PORT_DEFAULT=22509
-    SIRCL_MASTER_PORT_DEFAULT=22510
-    ;;
-  *)
-    echo "Error: unsupported CODI_QWEN3_METHOD_FAMILY=${CODI_QWEN3_METHOD_FAMILY}"
-    exit 1
-    ;;
-esac
+DATA_NAME="${CODI_QWEN3_DATA_NAME:-commonsense}"
+VARIANT="${CODI_METHOD_VARIANT:-simcon}"
+BASE_VARIANT_NAME="simcon"
+SIRCL_VARIANT_NAME="simcon_sircl"
+VARIANT_USAGE="simcon|simcon_sircl"
+USE_DECODER="True"
+BASE_MASTER_PORT_DEFAULT=22527
+SIRCL_MASTER_PORT_DEFAULT=22528
+QWEN3_MODEL_KEY="${CODI_QWEN3_MODEL_KEY:-qwen3_1p7b}"
 
 MODEL_KEY=""
 MODEL_DISPLAY_NAME=""
@@ -63,8 +37,6 @@ PRJ_DIM=0
 NUM_LATENT="${CODI_NUM_LATENT:-6}"
 PRINT_REF_MODEL_STATS="${CODI_PRINT_REF_MODEL_STATS:-False}"
 PRINT_LOSS="${CODI_PRINT_LOSS:-False}"
-PRINT_DECODER_STATS="${CODI_PRINT_DECODER_STATS:-False}"
-DECODER_DIAG_STEPS="${CODI_DECODER_DIAG_STEPS:-0}"
 DISTILL_LOSS_DIV_STD="${CODI_DISTILL_LOSS_DIV_STD:-True}"
 DISTILL_LOSS_FACTOR="${CODI_DISTILL_LOSS_FACTOR:-20}"
 EXPLAIN_LOSS_FACTOR="${CODI_EXPLAIN_LOSS_FACTOR:-1.0}"
@@ -72,53 +44,10 @@ REF_LOSS_FACTOR="${CODI_REF_LOSS_FACTOR:-1.0}"
 MAX_TOKEN_NUM="${CODI_MAX_TOKEN_NUM:-200}"
 SAVE_STRATEGY_DEFAULT="epoch"
 SAVE_STEPS_DEFAULT=100
-DEFAULT_EVAL_BATCH_SIZE=8
+DEFAULT_EVAL_BATCH_SIZE=16
 PER_DEVICE_BATCH_DEFAULT=0
 GRAD_ACC_DEFAULT=0
 NUM_EPOCHS_DEFAULT=0
-
-case "${QWEN3_MODEL_KEY}" in
-  qwen3|qwen3_4b)
-    MODEL_KEY="qwen3"
-    MODEL_DISPLAY_NAME="Qwen3-4B"
-    MODEL_PATH="${CODI_MM_QWEN3_PATH}"
-    EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_4b"
-    PRJ_DIM=2560
-    DEFAULT_EVAL_BATCH_SIZE=8
-    PER_DEVICE_BATCH_DEFAULT=8
-    GRAD_ACC_DEFAULT=2
-    NUM_EPOCHS_DEFAULT=8
-    ;;
-  qwen3_1p7b)
-    MODEL_KEY="qwen3_1p7b"
-    MODEL_DISPLAY_NAME="Qwen3-1.7B"
-    MODEL_PATH="${CODI_MM_QWEN3_1P7B_PATH}"
-    EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_1p7b"
-    PRJ_DIM=2048
-    DEFAULT_EVAL_BATCH_SIZE=16
-    PER_DEVICE_BATCH_DEFAULT=16
-    GRAD_ACC_DEFAULT=2
-    case "${CODI_QWEN3_METHOD_FAMILY}" in
-      simcon)
-        NUM_EPOCHS_DEFAULT=10
-        ;;
-      codi)
-        NUM_EPOCHS_DEFAULT=8
-        ;;
-    esac
-    # If this still runs tight on a specific machine, preserve the same
-    # effective global batch with: --per-device-batch 8 --grad-acc 4
-    ;;
-  *)
-    echo "Error: unsupported CODI_QWEN3_MODEL_KEY=${QWEN3_MODEL_KEY}"
-    echo "Supported model keys: qwen3_4b, qwen3_1p7b"
-    exit 1
-    ;;
-esac
-
-MODEL_NAME="${MODEL_PATH##*/}"
-MODEL_MANIFEST_PATH="${CODI_MULTIMODEL_MANIFEST_DIR}/${MODEL_NAME}.manifest.json"
-
 FORCE_SINGLE_GPU=0
 PER_DEVICE_BATCH_OVERRIDE=""
 GRAD_ACC_OVERRIDE=""
@@ -130,6 +59,39 @@ EXPT_SUFFIX="${CODI_EXPT_SUFFIX:-}"
 if [[ -n "${EXPT_SUFFIX}" && "${EXPT_SUFFIX}" != _* ]]; then
   EXPT_SUFFIX="_${EXPT_SUFFIX}"
 fi
+
+case "${QWEN3_MODEL_KEY}" in
+  qwen3|qwen3_4b)
+    MODEL_KEY="qwen3"
+    MODEL_DISPLAY_NAME="Qwen3-4B"
+    MODEL_PATH="${CODI_MM_QWEN3_PATH}"
+    EXPT_PREFIX="${CODI_COMMONSENSE_STAGE_TAG}_${DATA_NAME}_qwen3_4b"
+    PRJ_DIM=2560
+    DEFAULT_EVAL_BATCH_SIZE=8
+    PER_DEVICE_BATCH_DEFAULT=8
+    GRAD_ACC_DEFAULT=2
+    NUM_EPOCHS_DEFAULT=8
+    ;;
+  qwen3_1p7b)
+    MODEL_KEY="qwen3_1p7b"
+    MODEL_DISPLAY_NAME="Qwen3-1.7B"
+    MODEL_PATH="${CODI_MM_QWEN3_1P7B_PATH}"
+    EXPT_PREFIX="${CODI_COMMONSENSE_STAGE_TAG}_${DATA_NAME}_qwen3_1p7b"
+    PRJ_DIM=2048
+    DEFAULT_EVAL_BATCH_SIZE=16
+    PER_DEVICE_BATCH_DEFAULT=16
+    GRAD_ACC_DEFAULT=2
+    NUM_EPOCHS_DEFAULT=10
+    ;;
+  *)
+    echo "Error: unsupported CODI_QWEN3_MODEL_KEY=${QWEN3_MODEL_KEY}"
+    echo "Supported model keys: qwen3_4b, qwen3_1p7b"
+    exit 1
+    ;;
+esac
+
+MODEL_NAME="${MODEL_PATH##*/}"
+MODEL_MANIFEST_PATH="${CODI_COMMONSENSE_MANIFEST_DIR}/${MODEL_NAME}.manifest.json"
 
 usage() {
   echo "Usage: ${ENTRY_SCRIPT_NAME} [--sircl] [--single-gpu] [--per-device-batch N] [--grad-acc N] [--epochs N] [--max-steps N] [--dry-run] [--variant ${VARIANT_USAGE}]"
@@ -149,19 +111,6 @@ require_command() {
   if ! command -v "${name}" >/dev/null 2>&1; then
     echo "Error: required command is not available: ${name}"
     exit 1
-  fi
-}
-
-configure_dataset_cache() {
-  local default_shared_dataset_cache="${CODI_MULTIMODEL_HF_DATASETS_CACHE:-${CODI_MULTIMODEL_ROOT}/hf_datasets_cache}"
-
-  export CODI_GSM8K_AUG_CACHE_DIR="${CODI_GSM8K_AUG_CACHE_DIR:-/data/yhao/hf_datasets_cache}"
-  if [[ -z "${USER_HF_DATASETS_CACHE}" && -d "${default_shared_dataset_cache}" ]]; then
-    export HF_DATASETS_CACHE="${default_shared_dataset_cache}"
-  fi
-  if [[ -n "${HF_DATASETS_CACHE:-}" && -d "${HF_DATASETS_CACHE}" ]]; then
-    export HF_HUB_OFFLINE="${USER_HF_HUB_OFFLINE:-1}"
-    export HF_DATASETS_OFFLINE="${USER_HF_DATASETS_OFFLINE:-1}"
   fi
 }
 
@@ -209,8 +158,7 @@ PY
 
 validate_runtime_state() {
   require_existing_path "${CODI_VENV_PATH}" "CODI_VENV_PATH"
-  require_existing_path "${CODI_RUN_ROOT}" "CODI_RUN_ROOT"
-  require_existing_path "${CODI_MULTIMODEL_ROOT}" "CODI_MULTIMODEL_ROOT"
+  require_existing_path "${CODI_COMMONSENSE_ROOT}" "CODI_COMMONSENSE_ROOT"
   require_existing_path "${MODEL_PATH}" "${MODEL_DISPLAY_NAME} model directory"
   require_existing_path "${MODEL_PATH}/config.json" "${MODEL_DISPLAY_NAME} config.json"
   require_existing_path "${MODEL_MANIFEST_PATH}" "${MODEL_DISPLAY_NAME} manifest"
@@ -226,8 +174,7 @@ warn_missing_runtime_state_for_dry_run() {
 
   for entry in \
     "${CODI_VENV_PATH}:CODI_VENV_PATH" \
-    "${CODI_RUN_ROOT}:CODI_RUN_ROOT" \
-    "${CODI_MULTIMODEL_ROOT}:CODI_MULTIMODEL_ROOT" \
+    "${CODI_COMMONSENSE_ROOT}:CODI_COMMONSENSE_ROOT" \
     "${MODEL_PATH}:${MODEL_DISPLAY_NAME} model directory" \
     "${MODEL_PATH}/config.json:${MODEL_DISPLAY_NAME} config.json" \
     "${MODEL_MANIFEST_PATH}:${MODEL_DISPLAY_NAME} manifest"; do
@@ -380,20 +327,20 @@ run_variant() {
   local use_trajectory="$2"
   local master_port="$3"
   local expt_name="${EXPT_PREFIX}_${variant_name}${EXPT_SUFFIX}"
-  local checkpoint_root="${CODI_SAVE_DIR}/${expt_name}/${MODEL_NAME}/ep_${NUM_EPOCHS}/lr_${LEARNING_RATE}/seed_${SEED}"
-  local sweep_result_dir="${CODI_MULTIMODEL_RESULT_DIR}/checkpoint_sweeps/${expt_name}/${MODEL_NAME}/ep_${NUM_EPOCHS}/lr_${LEARNING_RATE}/seed_${SEED}"
+  local checkpoint_root="${CODI_COMMONSENSE_SAVE_DIR}/${expt_name}/${MODEL_NAME}/ep_${NUM_EPOCHS}/lr_${LEARNING_RATE}/seed_${SEED}"
+  local sweep_result_dir="${CODI_COMMONSENSE_RESULT_DIR}/checkpoint_sweeps/${expt_name}/${MODEL_NAME}/ep_${NUM_EPOCHS}/lr_${LEARNING_RATE}/seed_${SEED}"
   local -a train_cmd=(
     torchrun
     --nnodes "${NNODES}"
     --master_port "${master_port}"
     --nproc_per_node "${NPROC_PER_NODE}"
     "${CODI_DIR}/train.py"
-    --output_dir "${CODI_SAVE_DIR}"
+    --output_dir "${CODI_COMMONSENSE_SAVE_DIR}"
     --expt_name "${expt_name}"
-    --logging_dir "${CODI_MULTIMODEL_LOG_DIR}/${expt_name}"
+    --logging_dir "${CODI_COMMONSENSE_LOG_DIR}/${expt_name}"
     --logging_steps 10
     --model_name_or_path "${MODEL_PATH}"
-    --data_name icot
+    --data_name "${DATA_NAME}"
     --seed "${SEED}"
     --model_max_length "${MODEL_MAX_LENGTH}"
     --per_device_train_batch_size "${PER_DEVICE_BATCH}"
@@ -456,17 +403,16 @@ run_variant() {
   echo "=================================================================="
   echo "Entry script          : ${ENTRY_SCRIPT_NAME}"
   echo "Variant               : ${variant_name}"
-  echo "Stage root            : ${CODI_MULTIMODEL_ROOT}"
+  echo "Stage root            : ${CODI_COMMONSENSE_ROOT}"
+  echo "Data name             : ${DATA_NAME}"
   echo "Model name            : ${MODEL_DISPLAY_NAME}"
   echo "Model path            : ${MODEL_PATH}"
   echo "Manifest path         : ${MODEL_MANIFEST_PATH}"
   echo "Model key             : ${QWEN3_MODEL_KEY}"
-  echo "Output dir            : ${CODI_SAVE_DIR}"
-  echo "Result dir            : ${CODI_RESULT_DIR}"
-  echo "Cache dir             : ${CODI_CACHE_DIR}"
+  echo "Output dir            : ${CODI_COMMONSENSE_SAVE_DIR}"
+  echo "Result dir            : ${CODI_COMMONSENSE_RESULT_DIR}"
+  echo "Cache dir             : ${CODI_COMMONSENSE_CACHE_DIR}"
   echo "HF_DATASETS_CACHE     : ${HF_DATASETS_CACHE:-<unset>}"
-  echo "HF_HUB_OFFLINE        : ${HF_HUB_OFFLINE:-<unset>}"
-  echo "HF_DATASETS_OFFLINE   : ${HF_DATASETS_OFFLINE:-<unset>}"
   echo "Expt name             : ${expt_name}"
   echo "Experiment suffix     : ${EXPT_SUFFIX:-<none>}"
   echo "GPUs/node             : ${NPROC_PER_NODE}"
@@ -483,8 +429,6 @@ run_variant() {
   echo "Ref loss factor       : ${REF_LOSS_FACTOR}"
   echo "Print loss            : ${PRINT_LOSS}"
   echo "Print ref stats       : ${PRINT_REF_MODEL_STATS}"
-  echo "Print decoder stats   : ${PRINT_DECODER_STATS}"
-  echo "Decoder diag steps    : ${DECODER_DIAG_STEPS}"
   echo "Projection dim        : ${PRJ_DIM}"
   echo "Eval batch size       : ${EVAL_BATCH_SIZE}"
   echo "Max token num         : ${MAX_TOKEN_NUM}"
@@ -601,17 +545,9 @@ case "${VARIANT}" in
     ;;
 esac
 
-configure_dataset_cache
-
-if [[ "${DRY_RUN}" == "1" ]]; then
-  echo "[dry-run] skipping prepare_assets.sh; validating existing ${MODEL_DISPLAY_NAME} stage assets"
-else
-  bash "${SCRIPT_DIR}/prepare_assets.sh" --models "${MODEL_KEY}" --force-datasets
-fi
-
-export CODI_SAVE_DIR="${CODI_MULTIMODEL_SAVE_DIR}"
-export CODI_RESULT_DIR="${CODI_MULTIMODEL_RESULT_DIR}"
-export CODI_CACHE_DIR="${CODI_MULTIMODEL_CACHE_DIR}"
+export CODI_SAVE_DIR="${CODI_COMMONSENSE_SAVE_DIR}"
+export CODI_RESULT_DIR="${CODI_COMMONSENSE_RESULT_DIR}"
+export CODI_CACHE_DIR="${CODI_COMMONSENSE_CACHE_DIR}"
 
 NNODES="${CODI_TRAIN_NNODES:-1}"
 NPROC_PER_NODE="${CODI_TRAIN_NPROC_PER_NODE:-4}"
@@ -625,7 +561,7 @@ SAVE_STRATEGY="${CODI_SAVE_STRATEGY:-${SAVE_STRATEGY_DEFAULT}}"
 SAVE_TOTAL_LIMIT="${CODI_SAVE_TOTAL_LIMIT:-${NUM_EPOCHS}}"
 SAVE_STEPS="${CODI_SAVE_STEPS:-${SAVE_STEPS_DEFAULT}}"
 POST_TRAIN_EVAL="${CODI_POST_TRAIN_EVAL:-1}"
-POST_TRAIN_DATASETS="${CODI_POST_TRAIN_DATASETS:-gsm8k math500 aime svamp gsm-hard asdiv}"
+POST_TRAIN_DATASETS="${CODI_POST_TRAIN_DATASETS:-commonsense}"
 EVAL_BATCH_SIZE="${CODI_EVAL_BATCH_SIZE:-${DEFAULT_EVAL_BATCH_SIZE}}"
 SIRCL_SPACE_TYPE="${CODI_SIRCL_SPACE_TYPE:-euclidean}"
 SIRCL_RADIUS_THRESHOLD="${CODI_SIRCL_RADIUS_THRESHOLD:-4}"
@@ -669,6 +605,7 @@ fi
 echo "=================================================================="
 echo "Selected variant      : ${VARIANT}"
 echo "Selected model key    : ${QWEN3_MODEL_KEY}"
+echo "Selected data name    : ${DATA_NAME}"
 echo "Model name            : ${MODEL_DISPLAY_NAME}"
 echo "Model path            : ${MODEL_PATH}"
 echo "Manifest path         : ${MODEL_MANIFEST_PATH}"

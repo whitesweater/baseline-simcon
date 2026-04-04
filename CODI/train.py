@@ -42,6 +42,43 @@ def _to_scalar(x):
         return x.detach().float().mean().item()
     # 已经是数字的情况
     return float(x)
+
+
+def _debug_sample_count() -> int:
+    raw = os.environ.get("CODI_DEBUG_SAMPLE_COUNT", "0")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
+
+
+def _print_debug_answer_windows(data_dict: Dict, tokenizer: transformers.PreTrainedTokenizer, debug_count: int) -> None:
+    if debug_count <= 0:
+        return
+    print(f"[diag] CODI_DEBUG_SAMPLE_COUNT={debug_count}")
+    ref_inputs = data_dict["ref_input_ids"]
+    answer_inputs = data_dict["decoder_input_ids"]
+    ref_positions = data_dict["ref_answer_position"]
+    model_positions = data_dict["model_answer_position"]
+    for sample_idx, (ref_ids, ans_ids, ref_pos, model_pos) in enumerate(
+        zip(ref_inputs[:debug_count], answer_inputs[:debug_count], ref_positions[:debug_count], model_positions[:debug_count])
+    ):
+        ref_ids = ref_ids.tolist() if isinstance(ref_ids, torch.Tensor) else list(ref_ids)
+        ans_ids = ans_ids.tolist() if isinstance(ans_ids, torch.Tensor) else list(ans_ids)
+        ref_pos = int(ref_pos)
+        model_pos = int(model_pos)
+        ref_start = max(0, ref_pos - 4)
+        ref_end = min(len(ref_ids), ref_pos + 6)
+        ans_start = max(0, model_pos - 4)
+        ans_end = min(len(ans_ids), model_pos + 6)
+        print(
+            "[diag] sample="
+            f"{sample_idx} ref_answer_position={ref_pos} model_answer_position={model_pos} "
+            f"ref_window={repr(tokenizer.decode(ref_ids[ref_start:ref_end]))} "
+            f"model_window={repr(tokenizer.decode(ans_ids[ans_start:ans_end]))}"
+        )
+
+
 def read_json(file_path):
     """
     从指定路径读取JSON文件并返回对应的Python对象。
@@ -167,7 +204,15 @@ class CustomTrainer(Trainer):
                 "loss": _to_scalar(loss_for_log),
                 "ce_loss": _to_scalar(outputs.get("ce_loss")),
                 "distill_loss": _to_scalar(outputs.get("distill_loss")),
+                "distill_loss_raw": _to_scalar(outputs.get("distill_loss_raw")),
                 "ref_ce_loss": _to_scalar(outputs.get("ref_ce_loss")),
+                "explain_loss": _to_scalar(outputs.get("explain_loss")),
+                "explain_loss_raw": _to_scalar(outputs.get("explain_loss_raw")),
+                "decoder_tokens_mean": _to_scalar(outputs.get("decoder_tokens_mean")),
+                "decoder_tokens_max": _to_scalar(outputs.get("decoder_tokens_max")),
+                "decoder_label_tokens_mean": _to_scalar(outputs.get("decoder_label_tokens_mean")),
+                "decoder_label_tokens_max": _to_scalar(outputs.get("decoder_label_tokens_max")),
+                "decoder_effective_steps": _to_scalar(outputs.get("decoder_effective_steps")),
                 "trajectory_loss": _to_scalar(outputs.get("trajectory_loss")),
                 "acceleration_loss": _to_scalar(outputs.get("acceleration_loss")),
                 "action_loss": _to_scalar(outputs.get("action_loss")),
@@ -430,6 +475,17 @@ def train():
         ref_answer_position = [get_answer_token_position(x, answer_prompts, tokenizer) for i, x in enumerate(ref_input_ids)]
         model_answer_position = [get_answer_token_position(x, answer_prompts, tokenizer) for x in answers_id]
 
+        _print_debug_answer_windows(
+            {
+                "ref_input_ids": ref_input_ids,
+                "decoder_input_ids": answers_id,
+                "ref_answer_position": ref_answer_position,
+                "model_answer_position": model_answer_position,
+            },
+            tokenizer,
+            _debug_sample_count(),
+        )
+
         ref_eos_position = [len(x)-1 for x in ref_input_ids]
         model_eos_position = [len(x)-1 for x in answers_id]
         return dict(encoder_input_ids=sources_id, decoder_input_ids=answers_id, ref_input_ids=ref_input_ids, labels=answers_id, \
@@ -463,6 +519,7 @@ def train():
             if cached is not None:
                 self.data_dict = cached
                 self.keys = list(self.data_dict.keys())
+                _print_debug_answer_windows(self.data_dict, tokenizer, _debug_sample_count())
                 return
             # --- end cache check ---
 

@@ -304,6 +304,57 @@ def dedup_trailing_pads(explain_embds_list, pad_id=128256):
 
     return [row[:max_len] for row in explain_embds_list]
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _should_print_decoder_stats(step: Optional[int]) -> bool:
+    if not _env_flag("CODI_PRINT_DECODER_STATS", default=False):
+        return False
+    limit = _env_int("CODI_DECODER_DIAG_STEPS", default=0)
+    if limit <= 0:
+        return True
+    if step is None:
+        return True
+    return int(step) < limit
+
+
+def _print_decoder_stats(
+    step: Optional[int],
+    latent_idx: int,
+    indices: torch.Tensor,
+    explain_labels: torch.Tensor,
+    pad_id: int,
+) -> None:
+    if not _should_print_decoder_stats(step):
+        return
+    active_tokens = (indices != pad_id).sum(dim=1).float()
+    label_tokens = (explain_labels != -100).sum(dim=1).float()
+    step_display = -1 if step is None else int(step)
+    print(
+        "[diag][decoder] "
+        f"train_step={step_display} latent_idx={latent_idx} "
+        f"shape={tuple(indices.shape)} "
+        f"active_tokens_mean={active_tokens.mean().item():.2f} "
+        f"active_tokens_max={int(active_tokens.max().item())} "
+        f"label_tokens_mean={label_tokens.mean().item():.2f} "
+        f"label_tokens_max={int(label_tokens.max().item())}"
+    )
+
 class LowRankProjector(nn.Module):
     def __init__(self, input_dim, output_dim, rank=64):
         super(LowRankProjector, self).__init__()
@@ -623,6 +674,11 @@ class CODI(torch.nn.Module):
             forward_idx = 0
             explain_loss_total = 0.0
             effective_steps_cnt = 0
+            decoder_tokens_mean_total = torch.tensor(0.0, device=latent_embd.device)
+            decoder_tokens_max = torch.tensor(0.0, device=latent_embd.device)
+            decoder_label_tokens_mean_total = torch.tensor(0.0, device=latent_embd.device)
+            decoder_label_tokens_max = torch.tensor(0.0, device=latent_embd.device)
+            decoder_diag_passes = 0
             steps_list = get_steps(
                 ref_input_ids,
                 self.num_latent + 1,
@@ -661,6 +717,14 @@ class CODI(torch.nn.Module):
                 (explain_labels == -570) | (explain_labels == self.tokenizer.pad_token_id),
                 -100
             )
+            active_tokens = (indices != self.tokenizer.pad_token_id).sum(dim=1).float()
+            label_tokens = (explain_labels != -100).sum(dim=1).float()
+            decoder_tokens_mean_total += active_tokens.mean()
+            decoder_tokens_max = torch.maximum(decoder_tokens_max, active_tokens.max())
+            decoder_label_tokens_mean_total += label_tokens.mean()
+            decoder_label_tokens_max = torch.maximum(decoder_label_tokens_max, label_tokens.max())
+            decoder_diag_passes += 1
+            _print_decoder_stats(step, forward_idx, indices, explain_labels, self.tokenizer.pad_token_id)
             forward_idx += 1
 
             if self.model_args.decoder_path:
@@ -796,6 +860,14 @@ class CODI(torch.nn.Module):
                         (explain_labels == -570) | (explain_labels == self.tokenizer.pad_token_id),
                         -100
                     )
+                    active_tokens = (indices != self.tokenizer.pad_token_id).sum(dim=1).float()
+                    label_tokens = (explain_labels != -100).sum(dim=1).float()
+                    decoder_tokens_mean_total += active_tokens.mean()
+                    decoder_tokens_max = torch.maximum(decoder_tokens_max, active_tokens.max())
+                    decoder_label_tokens_mean_total += label_tokens.mean()
+                    decoder_label_tokens_max = torch.maximum(decoder_label_tokens_max, label_tokens.max())
+                    decoder_diag_passes += 1
+                    _print_decoder_stats(step, forward_idx, indices, explain_labels, self.tokenizer.pad_token_id)
 
                     if self.model_args.decoder_path:
                         explain_embds = self.pj_in(explain_embds)
@@ -937,11 +1009,21 @@ class CODI(torch.nn.Module):
             rank_diversity_loss_total = torch.tensor(0.0, device=trajectory_loss_total.device)
         
         # Weigh the distillation loss
+        distill_loss_total_raw = distill_loss_total
         distill_loss *= self.distill_loss_factor
         distill_loss_total *= self.distill_loss_factor
         if self.model_args.use_decoder:
+            explain_loss_total_raw = explain_loss_total
             explain_loss_total *= self.explain_loss_factor
             explain_loss_total /= max(1.0, effective_steps_cnt)
+            explain_loss_raw = explain_loss_total_raw / max(1.0, effective_steps_cnt)
+            if decoder_diag_passes > 0:
+                decoder_tokens_mean = decoder_tokens_mean_total / decoder_diag_passes
+                decoder_label_tokens_mean = decoder_label_tokens_mean_total / decoder_diag_passes
+            else:
+                decoder_tokens_mean = torch.tensor(0.0, device=decoder_tokens_mean_total.device)
+                decoder_label_tokens_mean = torch.tensor(0.0, device=decoder_tokens_mean_total.device)
+            decoder_effective_steps = torch.tensor(float(effective_steps_cnt), device=decoder_tokens_mean.device)
 
         if self.print_loss:
             if self.model_args.use_decoder:
@@ -959,6 +1041,8 @@ class CODI(torch.nn.Module):
             ce_loss_total = ce_loss_total.detach()
         if distill_loss_total != 0:
             distill_loss_total = distill_loss_total.detach()
+        if distill_loss_total_raw != 0:
+            distill_loss_total_raw = distill_loss_total_raw.detach()
         if ref_ce_loss != 0:
             ref_ce_loss = ref_ce_loss.detach()
         if trajectory_loss_total != 0:
@@ -974,9 +1058,42 @@ class CODI(torch.nn.Module):
         if self.model_args.use_decoder:
             if explain_loss_total != 0:
                 explain_loss_total = explain_loss_total.detach()
+            if explain_loss_raw != 0:
+                explain_loss_raw = explain_loss_raw.detach()
         # print(f"{ce_loss_total=}, {distill_loss_total=}, {ref_ce_loss=}, {explain_loss_total}")
 
         if self.model_args.use_decoder:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "explain_loss": explain_loss_total, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total, "rank_diversity_loss": rank_diversity_loss_total}
+            return {
+                "loss": loss,
+                "logits": logits,
+                "ce_loss": ce_loss_total,
+                "distill_loss": distill_loss_total,
+                "distill_loss_raw": distill_loss_total_raw,
+                "ref_ce_loss": ref_ce_loss,
+                "explain_loss": explain_loss_total,
+                "explain_loss_raw": explain_loss_raw,
+                "decoder_tokens_mean": decoder_tokens_mean,
+                "decoder_tokens_max": decoder_tokens_max,
+                "decoder_label_tokens_mean": decoder_label_tokens_mean,
+                "decoder_label_tokens_max": decoder_label_tokens_max,
+                "decoder_effective_steps": decoder_effective_steps,
+                "trajectory_loss": trajectory_loss_total,
+                "acceleration_loss": acceleration_loss_total,
+                "action_loss": action_loss_total,
+                "geodesic_loss": geodesic_loss_total,
+                "rank_diversity_loss": rank_diversity_loss_total,
+            }
         else:
-            return {"loss": loss, "logits": logits, "ce_loss": ce_loss_total, "distill_loss": distill_loss_total, "ref_ce_loss": ref_ce_loss, "trajectory_loss": trajectory_loss_total, "acceleration_loss": acceleration_loss_total, "action_loss": action_loss_total, "geodesic_loss": geodesic_loss_total, "rank_diversity_loss": rank_diversity_loss_total}
+            return {
+                "loss": loss,
+                "logits": logits,
+                "ce_loss": ce_loss_total,
+                "distill_loss": distill_loss_total,
+                "distill_loss_raw": distill_loss_total_raw,
+                "ref_ce_loss": ref_ce_loss,
+                "trajectory_loss": trajectory_loss_total,
+                "acceleration_loss": acceleration_loss_total,
+                "action_loss": action_loss_total,
+                "geodesic_loss": geodesic_loss_total,
+                "rank_diversity_loss": rank_diversity_loss_total,
+            }

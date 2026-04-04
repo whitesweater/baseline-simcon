@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+# Avoid inheriting a stale local proxy into Slurm jobs.
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+
 source ../.venv/bin/activate
 source config.env
 
