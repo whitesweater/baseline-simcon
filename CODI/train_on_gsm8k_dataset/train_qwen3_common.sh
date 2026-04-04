@@ -89,6 +89,24 @@ case "${QWEN3_MODEL_KEY}" in
     GRAD_ACC_DEFAULT=2
     NUM_EPOCHS_DEFAULT=8
     ;;
+  qwen3_0p6b)
+    MODEL_KEY="qwen3_0p6b"
+    MODEL_DISPLAY_NAME="Qwen3-0.6B"
+    MODEL_PATH="${CODI_MM_QWEN3_0P6B_PATH}"
+    EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_0p6b"
+    PRJ_DIM=1024
+    DEFAULT_EVAL_BATCH_SIZE=32
+    PER_DEVICE_BATCH_DEFAULT=32
+    GRAD_ACC_DEFAULT=2
+    case "${CODI_QWEN3_METHOD_FAMILY}" in
+      simcon)
+        NUM_EPOCHS_DEFAULT=10
+        ;;
+      codi)
+        NUM_EPOCHS_DEFAULT=8
+        ;;
+    esac
+    ;;
   qwen3_1p7b)
     MODEL_KEY="qwen3_1p7b"
     MODEL_DISPLAY_NAME="Qwen3-1.7B"
@@ -111,7 +129,7 @@ case "${QWEN3_MODEL_KEY}" in
     ;;
   *)
     echo "Error: unsupported CODI_QWEN3_MODEL_KEY=${QWEN3_MODEL_KEY}"
-    echo "Supported model keys: qwen3_4b, qwen3_1p7b"
+    echo "Supported model keys: qwen3_4b, qwen3_0p6b, qwen3_1p7b"
     exit 1
     ;;
 esac
@@ -315,12 +333,127 @@ is_post_train_eval_enabled() {
   esac
 }
 
+is_incremental_post_train_eval_enabled() {
+  if ! is_post_train_eval_enabled; then
+    return 1
+  fi
+
+  case "${EVAL_EACH_CHECKPOINT}" in
+    0|false|FALSE|no|NO)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+get_eval_manifest_path() {
+  local sweep_result_dir="$1"
+  echo "${sweep_result_dir}/evaluated_checkpoints.txt"
+}
+
+is_checkpoint_ready_for_eval() {
+  local ckpt_dir="$1"
+  [[ -d "${ckpt_dir}" ]] || return 1
+  [[ -f "${ckpt_dir}/trainer_state.json" ]] || return 1
+  [[ -f "${ckpt_dir}/pytorch_model.bin" || -f "${ckpt_dir}/model.safetensors" ]]
+}
+
+has_checkpoint_been_evaluated() {
+  local ckpt_dir="$1"
+  local manifest_path="$2"
+
+  [[ -f "${manifest_path}" ]] || return 1
+  grep -Fxq "${ckpt_dir}" "${manifest_path}"
+}
+
+mark_checkpoint_evaluated() {
+  local ckpt_dir="$1"
+  local manifest_path="$2"
+
+  mkdir -p "$(dirname "${manifest_path}")"
+  touch "${manifest_path}"
+  if ! has_checkpoint_been_evaluated "${ckpt_dir}" "${manifest_path}"; then
+    printf '%s\n' "${ckpt_dir}" >> "${manifest_path}"
+  fi
+}
+
+run_single_checkpoint_eval() {
+  local variant_name="$1"
+  local ckpt_dir="$2"
+  local sweep_result_dir="$3"
+
+  echo "[eval][${variant_name}] $(basename "${ckpt_dir}")"
+  pushd "${CODI_DIR}" >/dev/null
+  python "${CODI_DIR}/test_multi_dataset.py" \
+    --model_name_or_path "${MODEL_PATH}" \
+    --ckpt_dir "${ckpt_dir}" \
+    --datasets "${POST_TRAIN_DATASETS}" \
+    --num_runs 1 \
+    --result_dir "${sweep_result_dir}" \
+    --seed "${SEED}" \
+    --model_max_length "${MODEL_MAX_LENGTH}" \
+    --bf16 \
+    --lora_r 128 \
+    --lora_alpha 32 \
+    --lora_init \
+    --batch_size "${EVAL_BATCH_SIZE}" \
+    --greedy True \
+    --num_latent "${NUM_LATENT}" \
+    --use_prj True \
+    --prj_dim "${PRJ_DIM}" \
+    --prj_no_ln False \
+    --prj_dropout 0.0 \
+    --inf_latent_iterations 6 \
+    --remove_eos True \
+    --use_lora True
+  popd >/dev/null
+}
+
+watch_post_train_eval() {
+  local variant_name="$1"
+  local checkpoint_root="$2"
+  local sweep_result_dir="$3"
+  local train_pid="$4"
+  local manifest_path
+  manifest_path="$(get_eval_manifest_path "${sweep_result_dir}")"
+
+  mkdir -p "${sweep_result_dir}"
+  touch "${manifest_path}"
+
+  echo "[eval-watch][${variant_name}] polling every ${EVAL_POLL_INTERVAL}s while train pid=${train_pid} is running"
+
+  while kill -0 "${train_pid}" 2>/dev/null; do
+    if [[ -d "${checkpoint_root}" ]]; then
+      while IFS= read -r ckpt_dir; do
+        if ! is_checkpoint_ready_for_eval "${ckpt_dir}"; then
+          continue
+        fi
+        if has_checkpoint_been_evaluated "${ckpt_dir}" "${manifest_path}"; then
+          continue
+        fi
+        if run_single_checkpoint_eval "${variant_name}" "${ckpt_dir}" "${sweep_result_dir}"; then
+          mark_checkpoint_evaluated "${ckpt_dir}" "${manifest_path}"
+        else
+          echo "[eval-watch][${variant_name}] deferred $(basename "${ckpt_dir}") after eval failure; final catch-up will retry"
+        fi
+      done < <(find "${checkpoint_root}" -mindepth 1 -maxdepth 1 -type d -name 'checkpoint-*' | sort -V)
+    fi
+    sleep "${EVAL_POLL_INTERVAL}"
+  done
+
+  echo "[eval-watch][${variant_name}] training pid ${train_pid} exited; handing off to final catch-up sweep"
+}
+
 run_post_train_eval() {
   local variant_name="$1"
   local checkpoint_root="$2"
   local sweep_result_dir="$3"
   local -a checkpoints=()
   local ckpt_dir
+  local manifest_path
+  manifest_path="$(get_eval_manifest_path "${sweep_result_dir}")"
 
   if [[ ! -d "${checkpoint_root}" ]]; then
     echo "Checkpoint root does not exist for ${variant_name}: ${checkpoint_root}"
@@ -342,37 +475,23 @@ run_post_train_eval() {
   echo "Variant               : ${variant_name}"
   echo "Post-train datasets   : ${POST_TRAIN_DATASETS}"
   echo "Sweep result dir      : ${sweep_result_dir}"
+  echo "Eval manifest         : ${manifest_path}"
   echo "Checkpoint count      : ${#checkpoints[@]}"
   echo "Eval batch size       : ${EVAL_BATCH_SIZE}"
   echo "=================================================================="
 
-  pushd "${CODI_DIR}" >/dev/null
   for ckpt_dir in "${checkpoints[@]}"; do
-    echo "[eval][${variant_name}] $(basename "${ckpt_dir}")"
-    python "${CODI_DIR}/test_multi_dataset.py" \
-      --model_name_or_path "${MODEL_PATH}" \
-      --ckpt_dir "${ckpt_dir}" \
-      --datasets "${POST_TRAIN_DATASETS}" \
-      --num_runs 1 \
-      --result_dir "${sweep_result_dir}" \
-      --seed "${SEED}" \
-      --model_max_length "${MODEL_MAX_LENGTH}" \
-      --bf16 \
-      --lora_r 128 \
-      --lora_alpha 32 \
-      --lora_init \
-      --batch_size "${EVAL_BATCH_SIZE}" \
-      --greedy True \
-      --num_latent "${NUM_LATENT}" \
-      --use_prj True \
-      --prj_dim "${PRJ_DIM}" \
-      --prj_no_ln False \
-      --prj_dropout 0.0 \
-      --inf_latent_iterations 6 \
-      --remove_eos True \
-      --use_lora True
+    if ! is_checkpoint_ready_for_eval "${ckpt_dir}"; then
+      echo "[eval][skip][${variant_name}] $(basename "${ckpt_dir}") is not fully written yet"
+      continue
+    fi
+    if has_checkpoint_been_evaluated "${ckpt_dir}" "${manifest_path}"; then
+      echo "[eval][skip][${variant_name}] $(basename "${ckpt_dir}") already evaluated"
+      continue
+    fi
+    run_single_checkpoint_eval "${variant_name}" "${ckpt_dir}" "${sweep_result_dir}"
+    mark_checkpoint_evaluated "${ckpt_dir}" "${manifest_path}"
   done
-  popd >/dev/null
 }
 
 run_variant() {
@@ -498,6 +617,8 @@ run_variant() {
   echo "Save total limit      : ${SAVE_TOTAL_LIMIT}"
   echo "Save steps            : ${SAVE_STEPS} (used when strategy=steps)"
   echo "Post-train eval flag  : ${POST_TRAIN_EVAL}"
+  echo "Eval each checkpoint  : ${EVAL_EACH_CHECKPOINT}"
+  echo "Eval poll interval    : ${EVAL_POLL_INTERVAL}s"
   echo "Post-train datasets   : ${POST_TRAIN_DATASETS}"
   echo "Checkpoint root       : ${checkpoint_root}"
   echo "Sweep result dir      : ${sweep_result_dir}"
@@ -511,6 +632,11 @@ run_variant() {
   if [[ "${DRY_RUN}" == "1" ]]; then
     print_command "[dry-run][train]" "${train_cmd[@]}"
     if is_post_train_eval_enabled; then
+      if is_incremental_post_train_eval_enabled; then
+        echo "[dry-run] checkpoints will be evaluated incrementally as they are saved"
+      else
+        echo "[dry-run] checkpoints will be evaluated only in the final catch-up sweep"
+      fi
       preview_eval_commands "${checkpoint_root}" "${sweep_result_dir}"
     else
       echo "[dry-run] post-train checkpoint evaluation is disabled by CODI_POST_TRAIN_EVAL=${POST_TRAIN_EVAL}"
@@ -518,14 +644,44 @@ run_variant() {
     return 0
   fi
 
-  pushd "${CODI_DIR}" >/dev/null
-  "${train_cmd[@]}"
-  popd >/dev/null
+  local train_pid=""
+  local watcher_pid=""
+  local train_status=0
+  local watcher_status=0
+
+  (
+    cd "${CODI_DIR}"
+    "${train_cmd[@]}"
+  ) &
+  train_pid=$!
+
+  if is_incremental_post_train_eval_enabled; then
+    watch_post_train_eval "${variant_name}" "${checkpoint_root}" "${sweep_result_dir}" "${train_pid}" &
+    watcher_pid=$!
+  fi
+
+  set +e
+  wait "${train_pid}"
+  train_status=$?
+  if [[ -n "${watcher_pid}" ]]; then
+    wait "${watcher_pid}"
+    watcher_status=$?
+  fi
+  set -e
 
   if is_post_train_eval_enabled; then
     run_post_train_eval "${variant_name}" "${checkpoint_root}" "${sweep_result_dir}"
   else
     echo "Post-train checkpoint evaluation is disabled by CODI_POST_TRAIN_EVAL=${POST_TRAIN_EVAL}"
+  fi
+
+  if (( watcher_status != 0 )); then
+    echo "[warn] checkpoint watcher exited with status ${watcher_status}; final catch-up sweep completed anyway"
+  fi
+
+  if (( train_status != 0 )); then
+    echo "Training failed for ${variant_name} with status ${train_status}"
+    exit "${train_status}"
   fi
 }
 
@@ -625,6 +781,8 @@ SAVE_STRATEGY="${CODI_SAVE_STRATEGY:-${SAVE_STRATEGY_DEFAULT}}"
 SAVE_TOTAL_LIMIT="${CODI_SAVE_TOTAL_LIMIT:-${NUM_EPOCHS}}"
 SAVE_STEPS="${CODI_SAVE_STEPS:-${SAVE_STEPS_DEFAULT}}"
 POST_TRAIN_EVAL="${CODI_POST_TRAIN_EVAL:-1}"
+EVAL_EACH_CHECKPOINT="${CODI_EVAL_EACH_CHECKPOINT:-1}"
+EVAL_POLL_INTERVAL="${CODI_EVAL_POLL_INTERVAL:-30}"
 POST_TRAIN_DATASETS="${CODI_POST_TRAIN_DATASETS:-gsm8k math500 aime svamp gsm-hard asdiv}"
 EVAL_BATCH_SIZE="${CODI_EVAL_BATCH_SIZE:-${DEFAULT_EVAL_BATCH_SIZE}}"
 SIRCL_SPACE_TYPE="${CODI_SIRCL_SPACE_TYPE:-euclidean}"

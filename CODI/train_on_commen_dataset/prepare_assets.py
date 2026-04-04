@@ -39,6 +39,12 @@ MODEL_SPECS = {
         "modelscope_id": "Qwen/Qwen3-4B",
         "hf_id": "Qwen/Qwen3-4B",
     },
+    "qwen3_0p6b": {
+        "dest_name": "Qwen3-0.6B-Base",
+        "local_env": "CODI_QWEN3_0P6B_PATH",
+        "modelscope_id": "Qwen/Qwen3-0.6B-Base",
+        "hf_id": "Qwen/Qwen3-0.6B-Base",
+    },
     "qwen3_1p7b": {
         "dest_name": "Qwen3-1.7B",
         "local_env": "CODI_QWEN3_1P7B_PATH",

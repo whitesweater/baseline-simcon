@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/env.sh"
 # shellcheck disable=SC1091
 source "${CODI_VENV_PATH}" || { echo "Error: CODI_VENV_PATH is invalid: ${CODI_VENV_PATH}"; exit 1; }
 
-MODELS=(qwen3 qwen3_1p7b)
+MODELS=(qwen3 qwen3_0p6b qwen3_1p7b)
 DATASETS=(commonsense)
 INCLUDE_DATASETS=true
 FORCE_DATASETS=false
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--models qwen3 qwen3_1p7b] [--skip-datasets] [--force-datasets]"
+      echo "Usage: $0 [--models qwen3 qwen3_0p6b qwen3_1p7b] [--skip-datasets] [--force-datasets]"
       exit 1
       ;;
   esac
@@ -82,8 +82,8 @@ download_models() {
       echo "[try] ${model} via ${backend}"
       if python "${SCRIPT_DIR}/prepare_assets.py" models \
           --backend "${backend}" \
-          --dest-root "${CODI_MULTIMODEL_MODEL_ROOT}" \
-          --manifest-root "${CODI_MULTIMODEL_MANIFEST_DIR}" \
+          --dest-root "${CODI_COMMONSENSE_MODEL_ROOT}" \
+          --manifest-root "${CODI_COMMONSENSE_MANIFEST_DIR}" \
           --models "${model}"; then
         success=true
         break
@@ -104,7 +104,7 @@ warm_datasets() {
     switch_download_env "${backend}"
     echo "[try] warming datasets via ${backend}"
     if python "${SCRIPT_DIR}/prepare_assets.py" datasets \
-        --manifest-root "${CODI_MULTIMODEL_MANIFEST_DIR}" \
+        --manifest-root "${CODI_COMMONSENSE_MANIFEST_DIR}" \
         --datasets "${DATASETS[@]}"; then
       success=true
       break
@@ -118,10 +118,10 @@ warm_datasets() {
 }
 
 echo "=================================================================="
-echo "Stage root : ${CODI_MULTIMODEL_ROOT}"
-echo "Model root : ${CODI_MULTIMODEL_MODEL_ROOT}"
-echo "Cache root : ${CODI_MULTIMODEL_CACHE_DIR}"
-echo "Result root: ${CODI_MULTIMODEL_RESULT_DIR}"
+echo "Stage root : ${CODI_COMMONSENSE_ROOT}"
+echo "Model root : ${CODI_COMMONSENSE_MODEL_ROOT}"
+echo "Cache root : ${CODI_COMMONSENSE_CACHE_DIR}"
+echo "Result root: ${CODI_COMMONSENSE_RESULT_DIR}"
 echo "Models     : ${MODELS[*]}"
 echo "Datasets   : ${DATASETS[*]}"
 echo "=================================================================="
@@ -137,8 +137,15 @@ cat <<EOF
 [done] CommonsenseQA Qwen stage assets are ready.
 
 Next commands:
+  bash CODI/train_on_commen_dataset/run_qwen3_0p6b_baseline.sh
+  bash CODI/train_on_commen_dataset/train_qwen3_0p6b.sh
+  bash CODI/train_on_commen_dataset/train_qwen3_0p6b.sh --sircl
   bash CODI/train_on_commen_dataset/train_qwen3_1p7b.sh
   bash CODI/train_on_commen_dataset/train_qwen3_1p7b.sh --sircl
+
+These launchers now evaluate each completed checkpoint as soon as it is saved.
+To disable live checkpoint evaluation and fall back to the end-of-run catch-up sweep:
+  CODI_EVAL_EACH_CHECKPOINT=0 bash CODI/train_on_commen_dataset/train_qwen3_0p6b.sh
 
 Manual single-checkpoint eval fallback:
   python CODI/test_multi_dataset.py --datasets commonsense --num_runs 1 \

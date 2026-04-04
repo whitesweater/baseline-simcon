@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/env.sh"
 # shellcheck disable=SC1091
 source "${CODI_VENV_PATH}" || { echo "Error: CODI_VENV_PATH is invalid: ${CODI_VENV_PATH}"; exit 1; }
 
-MODELS=(llama1b llama3b llama8b qwen3)
+MODELS=(llama1b llama3b llama8b qwen3 qwen3_0p6b qwen3_1p7b)
 DATASETS=(gsm8k math500 aime svamp gsm-hard asdiv)
 INCLUDE_DATASETS=true
 FORCE_DATASETS=false
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--models llama1b llama3b llama8b qwen3 qwen3_1p7b] [--skip-datasets] [--force-datasets]"
+      echo "Usage: $0 [--models llama1b llama3b llama8b qwen3 qwen3_0p6b qwen3_1p7b] [--skip-datasets] [--force-datasets]"
       exit 1
       ;;
   esac
@@ -148,11 +148,13 @@ Next commands:
   bash CODI/train_on_gsm8k_dataset/train_llama3b.sh
   bash CODI/train_on_gsm8k_dataset/train_llama8b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3.sh
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_0p6b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b_codi.sh
 
-These training scripts now auto-scan all saved checkpoints on:
+These training scripts now auto-evaluate each completed checkpoint as soon as it is saved,
+then run a final catch-up sweep for anything still missing on:
   ${DATASETS[*]}
 
 Primary rebuttal train_* entry points run one SIM-CoT variant at a time:
@@ -164,6 +166,7 @@ Optional Qwen3-4B CODI entry:
   pass --sircl or --variant codi_sircl for codi_sircl
 
 Optional Qwen3-1.7B entry points:
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_0p6b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b_codi.sh
 
