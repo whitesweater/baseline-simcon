@@ -70,6 +70,7 @@ DISTILL_LOSS_FACTOR="${CODI_DISTILL_LOSS_FACTOR:-20}"
 EXPLAIN_LOSS_FACTOR="${CODI_EXPLAIN_LOSS_FACTOR:-1.0}"
 REF_LOSS_FACTOR="${CODI_REF_LOSS_FACTOR:-1.0}"
 MAX_TOKEN_NUM="${CODI_MAX_TOKEN_NUM:-200}"
+DDP_FIND_UNUSED_PARAMETERS="${CODI_DDP_FIND_UNUSED_PARAMETERS:-False}"
 SAVE_STRATEGY_DEFAULT="epoch"
 SAVE_STEPS_DEFAULT=100
 DEFAULT_EVAL_BATCH_SIZE=8
@@ -561,7 +562,7 @@ run_variant() {
     --max_token_num "${MAX_TOKEN_NUM}"
     --use_decoder "${USE_DECODER}"
     --use_trajectory_consistency "${use_trajectory}"
-    --ddp_find_unused_parameters False
+    --ddp_find_unused_parameters "${DDP_FIND_UNUSED_PARAMETERS}"
   )
 
   if [[ "${use_trajectory}" == "True" ]]; then
@@ -607,6 +608,7 @@ run_variant() {
   echo "Projection dim        : ${PRJ_DIM}"
   echo "Eval batch size       : ${EVAL_BATCH_SIZE}"
   echo "Max token num         : ${MAX_TOKEN_NUM}"
+  echo "DDP find unused       : ${DDP_FIND_UNUSED_PARAMETERS}"
   echo "Max steps override    : ${MAX_STEPS_OVERRIDE:-<epoch-controlled>}"
   echo "Global batch effective: ${GLOBAL_BATCH_EFFECTIVE}"
   echo "Master port           : ${master_port}"
