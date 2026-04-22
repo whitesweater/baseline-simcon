@@ -260,5 +260,5 @@ skills_backup/
 CODI/logs/
 mihomo-linux-amd64-v3-v1.19.22.gz
 .omx/
+.omc/
 CODI/train_on_gsm8k_dataset/slurm*
-CODI/train_on_gsm8k_dataset/slurm_debug_qwen3_1p7b.sh
