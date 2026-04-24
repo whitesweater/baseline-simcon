@@ -1158,6 +1158,27 @@ class MultiDatasetEvaluator:
         self.model = None
         self.tokenizer = None
         self.model_name = get_model_name_from_ckpt(model_args.ckpt_dir)
+
+    def attach_external_model(self, model, tokenizer, model_name: str = None):
+        """复用一个已经加载好的模型/tokenizer（用于训练中评测，不再二次加载）。
+
+        要求：
+        - `model` 是 CODI 实例（DDP 下请先 `.module` 解包），已经 `.to('cuda')`。
+        - `tokenizer` 必须是 padding_side='left' 的，否则推理时 BOT token 会被插到 pad 后面。
+        """
+        self.model = model
+        self.tokenizer = tokenizer
+        if getattr(tokenizer, "padding_side", None) != "left":
+            print(f"[Eval][WARN] tokenizer.padding_side={tokenizer.padding_side!r}, "
+                  f"推理通常要求 'left'，否则 BOT token 位置会错。")
+        if model_name:
+            self.model_name = model_name
+        # 切到 eval；不强行改 dtype/device，因为外部模型已经设置好。
+        try:
+            self.model.eval()
+        except Exception:
+            pass
+        print(f"[Model] 已挂接外部模型: {self.model_name}")
     
     def load_model(self):
         """加载模型（只调用一次）"""
