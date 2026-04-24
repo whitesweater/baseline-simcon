@@ -1,0 +1,41 @@
+# =============================================================================
+# 训练命令汇总 (nohup 后台, 单行, 全绝对路径)
+#
+# 自动隔离 (脚本内已实现):
+#   * METHOD_TAG = {simcot, simcot_sircl, codi, codi_sircl}
+#   * EXPT_NAME 追加 "__${METHOD_TAG}",  SAVE_DIR 追加 "/${METHOD_TAG}"
+#   * LOG_DIR = ${SAVE_DIR}/logs/${EXPT_NAME}-logs (TensorBoard)
+#   -> 4 个变体 checkpoint / 日志互不覆盖
+#
+# 并发约束: MASTER_PORT 唯一 + CUDA_VISIBLE_DEVICES 不重叠 + nohup 日志名不同
+# 本机 4 张卡, 不能让 gpt2 + qwen3 同时各占 4 张
+#
+# 全绝对路径: ssh 进任何容器后, 在任何 cwd 都能直接复制粘贴运行;
+#             也可以直接 `gpux <alias> '<one-line>'` 转发到远端
+# `< /dev/null` 关键: 让 nohup 真正脱离 ssh 的 stdin, 防止 ssh 不返回
+# =============================================================================
+
+mkdir -p /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs
+
+# ---- GPT-2  (4 张卡, 一次跑一个变体) ----------------------------------------
+nohup env USE_DECODER=True  USE_TRAJECTORY_CONSISTENCY=False MASTER_PORT=27147 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.simcot.log       2>&1 < /dev/null &
+nohup env USE_DECODER=True  USE_TRAJECTORY_CONSISTENCY=True  MASTER_PORT=27148 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.simcot_sircl.log 2>&1 < /dev/null &
+nohup env USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=False MASTER_PORT=27149 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.codi.log         2>&1 < /dev/null &
+nohup env USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=True  MASTER_PORT=27150 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.codi_sircl.log   2>&1 < /dev/null &
+
+# ---- Qwen3-0.6B  (4 张卡, 一次跑一个变体) -----------------------------------
+nohup env USE_DECODER=True  USE_TRAJECTORY_CONSISTENCY=False MASTER_PORT=29247 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/qwen3_06b.sh  > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/qwen3_06b.simcot.log       2>&1 < /dev/null &
+nohup env USE_DECODER=True  USE_TRAJECTORY_CONSISTENCY=True  MASTER_PORT=29248 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/qwen3_06b.sh  > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/qwen3_06b.simcot_sircl.log 2>&1 < /dev/null &
+nohup env USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=False MASTER_PORT=29249 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/qwen3_06b.sh  > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/qwen3_06b.codi.log         2>&1 < /dev/null &
+nohup env USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=True  MASTER_PORT=29250 CUDA_VISIBLE_DEVICES=0,1,2,3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/qwen3_06b.sh  > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/qwen3_06b.codi_sircl.log   2>&1 < /dev/null &
+
+# ---- 可选: 4 变体并行 (每个 1 张卡, NPROC_PER_NODE=1) -----------------------
+# nohup env USE_DECODER=True  USE_TRAJECTORY_CONSISTENCY=False NPROC_PER_NODE=1 MASTER_PORT=23147 CUDA_VISIBLE_DEVICES=0 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.simcot.log       2>&1 < /dev/null &
+# nohup env USE_DECODER=True  USE_TRAJECTORY_CONSISTENCY=True  NPROC_PER_NODE=1 MASTER_PORT=23148 CUDA_VISIBLE_DEVICES=1 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.simcot_sircl.log 2>&1 < /dev/null &
+# nohup env USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=False NPROC_PER_NODE=1 MASTER_PORT=23149 CUDA_VISIBLE_DEVICES=2 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.codi.log         2>&1 < /dev/null &
+# nohup env USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=True  NPROC_PER_NODE=1 MASTER_PORT=23150 CUDA_VISIBLE_DEVICES=3 bash /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI/qwentrain/gpt2_simcot.sh > /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/gpt2.codi_sircl.log   2>&1 < /dev/null &
+
+# ---- 监控 -------------------------------------------------------------------
+# jobs -l ; ps -ef | grep train.py ; nvidia-smi
+# tail -f /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/nohup_logs/*.log
+# pkill -f 'train.py'   # 全部杀掉, 慎用

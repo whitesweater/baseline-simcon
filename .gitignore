@@ -262,3 +262,5 @@ mihomo-linux-amd64-v3-v1.19.22.gz
 .omx/
 .omc/
 CODI/train_on_gsm8k_dataset/slurm*
+.claude/
+CODI/qwentrain/daemon/

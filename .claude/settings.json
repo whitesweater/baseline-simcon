@@ -32,7 +32,16 @@
       "Read(*)",
       "Write(*)",
       "Read(//data/yhao/baseline/$3 ~ /^\\(220|268|175|935\\)$/**)",
-      "Read(//data/yhao/baseline/**)"
+      "Read(//data/yhao/baseline/**)",
+      "Bash(curl -sS --max-time 20 -D - -o /tmp/codex_models_body.txt -H \"Authorization: Bearer sk-pRnf608r56E65mvmhgqHvZfD061AUPvZ7vSCng3ZB4JCd\" \"http://43.163.70.99:8317/v1/models\")",
+      "Bash(curl -sS --max-time 30 -D - -o /tmp/codex_resp_body.txt -H \"Content-Type: application/json\" -H \"Authorization: Bearer sk-pRnf608r56E65mvmhgqHvZfD061AUPvZ7vSCng3ZB4JCd\" \"http://43.163.70.99:8317/v1/responses\" --data '{\"model\":\"gpt-4.1-mini\",\"input\":\"Reply with exactly: ok\"}')",
+      "Bash(curl -N -sS --max-time 40 -D /tmp/codex_stream_headers.txt -o /tmp/codex_stream_body.txt -H \"Content-Type: application/json\" -H \"Authorization: Bearer sk-pRnf608r56E65mvmhgqHvZfD061AUPvZ7vSCng3ZB4JCd\" \"http://43.163.70.99:8317/v1/responses\" --data '{\"model\":\"gpt-4.1-mini\",\"stream\":true,\"input\":\"Reply with exactly: ok\"}')",
+      "Read(//tmp/**)",
+      "Bash(curl -N -sS --max-time 40 -D - -H \"Content-Type: application/json\" -H \"Authorization: Bearer sk-pRnf608r56E65mvmhgqHvZfD061AUPvZ7vSCng3ZB4JCd\" \"http://43.163.70.99:8317/v1/responses\" --data '{\"model\":\"gpt-5-codex\",\"stream\":true,\"input\":\"Reply with exactly: ok\"}')",
+      "Bash(curl -sS --max-time 30 -D - -H \"Content-Type: application/json\" -H \"Authorization: Bearer sk-pRnf608r56E65mvmhgqHvZfD061AUPvZ7vSCng3ZB4JCd\" \"http://43.163.70.99:8317/v1/responses\" --data '{\"model\":\"gpt-5-codex\",\"input\":\"Reply with exactly: ok\"}')",
+      "Bash(curl -N -sS --max-time 45 -D /tmp/codex_stream_retry_headers.txt -o /tmp/codex_stream_retry_body.txt -H 'Content-Type: application/json' -H 'Authorization: Bearer __TRACKED_VAR__' http://43.163.70.99:8317/v1/responses --data '{\"model\":\"gpt-5-codex\",\"stream\":true,\"input\":\"Reply with exactly: ok\"}')",
+      "Bash(command -v sshpass)",
+      "Bash(command -v expect)"
     ],
     "deny": [
       "Bash(rm -rf /)",

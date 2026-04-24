@@ -21,6 +21,7 @@ CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果
 - `train_on_gsm8k_dataset/train_llama3b.sh`
 - `train_on_gsm8k_dataset/train_llama8b.sh`
 - `train_on_gsm8k_dataset/train_qwen3.sh`
+- `train_on_gsm8k_dataset/train_qwen3_8b.sh`
 - `train_on_gsm8k_dataset/train_qwen3_codi.sh`
 - `train_on_gsm8k_dataset/eval_llama1b_math500_aime.sh`
 
@@ -29,7 +30,9 @@ CODI（Continuous thought DIstillation）是一个通过 LoRA 适配训练因果
 - 默认：`simcon`
 - 传 `--sircl` 或 `--variant simcon_sircl`：`simcon_sircl`
 
-另外，`train_qwen3_codi.sh` 提供并行可选的 `Qwen3-4B` CODI 入口：
+另外，`train_qwen3_8b.sh` 提供约 9B 量级的 Qwen3-8B SIM-CoT 入口，默认走非 SIRCL 路线；推荐先用 `slurm_debug_qwen3_8b.sh` 做 4 卡 debug，再用 `slurm_train_qwen3_8b.sh` 进正式队列。
+
+并且，`train_qwen3_codi.sh` 提供并行可选的 `Qwen3-4B` CODI 入口：
 
 - 默认：`codi`
 - 传 `--sircl` 或 `--variant codi_sircl`：`codi_sircl`
@@ -134,6 +137,7 @@ export CODI_RESULT_DIR="${CODI_RUN_ROOT}/results"
 
 # 模型路径
 export CODI_LLAMA1B_PATH="/path/to/Llama-3.2-1B-Instruct"
+export CODI_QWEN3_8B_PATH="/path/to/Qwen3-8B"
 export CODI_GPT2_PATH="/path/to/gpt2"
 
 # 数据集路径
@@ -173,6 +177,11 @@ python train.py \
     --trajectory_radius_threshold 2.0 \
     --trajectory_loss_factor 0.1 \
     --use_decoder True
+
+# Qwen3-8B SIM-CoT: 先做 dry-run / debug，再进正式队列
+bash train_on_gsm8k_dataset/train_qwen3_8b.sh --dry-run
+sbatch train_on_gsm8k_dataset/slurm_debug_qwen3_8b.sh
+sbatch train_on_gsm8k_dataset/slurm_train_qwen3_8b.sh
 ```
 
 ### 3. 评估模型

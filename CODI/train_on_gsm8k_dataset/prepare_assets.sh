@@ -7,7 +7,7 @@ source "${SCRIPT_DIR}/env.sh"
 # shellcheck disable=SC1091
 source "${CODI_VENV_PATH}" || { echo "Error: CODI_VENV_PATH is invalid: ${CODI_VENV_PATH}"; exit 1; }
 
-MODELS=(llama1b llama3b llama8b qwen3 qwen3_0p6b qwen3_1p7b)
+MODELS=(llama1b llama3b llama8b qwen3 qwen3_8b qwen3_0p6b qwen3_1p7b)
 DATASETS=(gsm8k math500 aime svamp gsm-hard asdiv)
 INCLUDE_DATASETS=true
 FORCE_DATASETS=false
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--models llama1b llama3b llama8b qwen3 qwen3_0p6b qwen3_1p7b] [--skip-datasets] [--force-datasets]"
+      echo "Usage: $0 [--models llama1b llama3b llama8b qwen3 qwen3_8b qwen3_0p6b qwen3_1p7b] [--skip-datasets] [--force-datasets]"
       exit 1
       ;;
   esac
@@ -148,6 +148,7 @@ Next commands:
   bash CODI/train_on_gsm8k_dataset/train_llama3b.sh
   bash CODI/train_on_gsm8k_dataset/train_llama8b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3.sh
+  bash CODI/train_on_gsm8k_dataset/train_qwen3_8b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_0p6b.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_codi.sh
   bash CODI/train_on_gsm8k_dataset/train_qwen3_1p7b.sh

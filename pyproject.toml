@@ -6,7 +6,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     # 核心依赖（基于 CODI 实测版本，放宽上界）
     "torch>=2.5.1", # CODI: 2.7.1
-    "transformers>=4.46.2", # CODI: 4.52.4
+    "transformers @ git+https://github.com/huggingface/transformers.git", # Qwen3.5 needs mainline support for qwen3_5
     "accelerate>=1.7.0", # CODI: 1.7.0
     "peft>=0.13.0", # CODI: 0.15.2
     "datasets>=3.1.0", # CODI: 3.6.0

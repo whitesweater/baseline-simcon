@@ -90,6 +90,24 @@ case "${QWEN3_MODEL_KEY}" in
     GRAD_ACC_DEFAULT=2
     NUM_EPOCHS_DEFAULT=8
     ;;
+  qwen3_8b)
+    MODEL_KEY="qwen3_8b"
+    MODEL_DISPLAY_NAME="Qwen3-8B"
+    MODEL_PATH="${CODI_MM_QWEN3_8B_PATH}"
+    EXPT_PREFIX="${CODI_MULTIMODEL_TAG}_gsm8k_qwen3_8b"
+    PRJ_DIM=4096
+    DEFAULT_EVAL_BATCH_SIZE=4
+    PER_DEVICE_BATCH_DEFAULT=2
+    GRAD_ACC_DEFAULT=8
+    case "${CODI_QWEN3_METHOD_FAMILY}" in
+      simcon)
+        NUM_EPOCHS_DEFAULT=8
+        ;;
+      codi)
+        NUM_EPOCHS_DEFAULT=6
+        ;;
+    esac
+    ;;
   qwen3_0p6b)
     MODEL_KEY="qwen3_0p6b"
     MODEL_DISPLAY_NAME="Qwen3-0.6B"
@@ -130,7 +148,7 @@ case "${QWEN3_MODEL_KEY}" in
     ;;
   *)
     echo "Error: unsupported CODI_QWEN3_MODEL_KEY=${QWEN3_MODEL_KEY}"
-    echo "Supported model keys: qwen3_4b, qwen3_0p6b, qwen3_1p7b"
+    echo "Supported model keys: qwen3_4b, qwen3_8b, qwen3_0p6b, qwen3_1p7b"
     exit 1
     ;;
 esac
