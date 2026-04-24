@@ -95,6 +95,11 @@ CMD=(
 	--trajectory_space_type euclidean
 	--trajectory_radius_threshold 2
 	--trajectory_loss_factor 0.1
+	--inf_latent_iterations 6
+	--greedy True
+	--run_test_on_save "${RUN_TEST_ON_SAVE:-True}"
+	--periodic_test_datasets "${PERIODIC_TEST_DATASETS:-gsm8k}"
+	--periodic_test_batch_size "${PERIODIC_TEST_BATCH_SIZE:-32}"
 	"$@"
 )
 

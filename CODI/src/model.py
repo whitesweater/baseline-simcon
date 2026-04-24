@@ -154,6 +154,10 @@ class TrainingArguments(transformers.TrainingArguments):
     rank_diversity_cosine_weight: float = field(default=0.5, metadata={"help": "Weight for cosine component in combined mode."})
     rank_diversity_center: bool = field(default=True, metadata={"help": "Center latent matrix before SVD (recommended)."})
     run_test_on_save: bool = field(default=False, metadata={"help": "Run evaluation on the test set when saving the model checkpoint."})
+    periodic_test_datasets: str = field(default="gsm8k", metadata={"help": "Space-separated dataset names to evaluate on every checkpoint save (used by PeriodicTestCallback)."})
+    periodic_test_result_dir: str = field(default="", metadata={"help": "Result dir for in-training evaluation. Defaults to <output_dir>/eval_results."})
+    periodic_test_batch_size: int = field(default=1, metadata={"help": "Inference batch size for in-training evaluation."})
+    periodic_test_max_new_tokens: int = field(default=256, metadata={"help": "max_new_tokens for in-training evaluation."})
 
 def print_trainable_parameters(model):
     trainable_parameters = 0

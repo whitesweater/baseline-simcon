@@ -274,54 +274,154 @@ class CustomTrainer(Trainer):
 
 
 class PeriodicTestCallback(TrainerCallback):
-    """在保存检查点时，用训练中的模型直接跑测试，避免重复加载模型。"""
+    """在保存检查点之后，原地（同进程、同模型）跑一次测评。
+
+    设计要点（参考 Coconut/run.py 的进程内评测）：
+      - 不 fork 子进程：避免显存翻倍；用 `torch.no_grad()` + `model.eval()`，
+        evaluation 期间不存 activation，新增显存只有少量 KV cache。
+      - 只在 rank0 执行 evaluator，其它 rank 在 `dist.barrier()` 等待，
+        避免后续训练 step 在 NCCL 集合通信处死锁。
+      - 每个 checkpoint 作为 ResultsManager 中独立的 model_name 行写入，
+        所有 checkpoint 共享同一个 result_dir，自动累加到
+        `<result_dir>/summary/all_results.csv` 和 `comparison_matrix.csv`。
+    """
 
     def __init__(self, model_args, data_args, training_args):
+        # 缓存配置，避免训练参数被 mutate 后影响评测
         self.model_args = copy.deepcopy(model_args)
         self.data_args = copy.deepcopy(data_args)
-        self.training_args = copy.deepcopy(training_args)
+        self.training_args_snapshot = copy.deepcopy(training_args)
+        self._left_tokenizer = None  # lazy init on rank0
+        self._results_manager = None
+        self._evaluator = None
+        # 解析评测数据集列表
+        raw_datasets = getattr(training_args, "periodic_test_datasets", "") or ""
+        self.eval_datasets = [d for d in raw_datasets.split() if d]
+        if not self.eval_datasets:
+            self.eval_datasets = ["gsm8k"]
+        # 结果目录
+        self.result_dir = getattr(training_args, "periodic_test_result_dir", "") or ""
+        if not self.result_dir:
+            self.result_dir = os.path.join(training_args.output_dir, "eval_results")
+
+    def _ensure_left_tokenizer(self):
+        if self._left_tokenizer is not None:
+            return self._left_tokenizer
+        tk = load_tokenizer_with_fallback(
+            self.model_args.model_name_or_path,
+            token=self.model_args.token,
+            cache_dir=self.training_args_snapshot.cache_dir,
+            model_max_length=self.training_args_snapshot.model_max_length,
+            padding_side="left",
+            use_fast=False,
+        )
+        if tk.pad_token_id is None:
+            tk.add_special_tokens({"pad_token": "[PAD]"})
+        self._left_tokenizer = tk
+        return tk
+
+    def _is_dist(self):
+        try:
+            import torch.distributed as dist
+            return dist.is_available() and dist.is_initialized()
+        except Exception:
+            return False
+
+    def _barrier(self):
+        if self._is_dist():
+            import torch.distributed as dist
+            dist.barrier()
 
     def on_save(self, args, state, control, **kwargs):
         if not getattr(args, "run_test_on_save", False):
             return control
-        if hasattr(state, "is_world_process_zero") and not state.is_world_process_zero:
+
+        trainer = kwargs.get("trainer")  # 通常为 None；仅作可选日志通道
+        model = kwargs.get("model")
+        if model is None and trainer is not None:
+            model = trainer.model
+        if model is None:
+            logging.warning("[PeriodicTest] 无法拿到 model，跳过本次评测。")
             return control
 
+        # 让所有 rank 释放可能的临时显存，再 barrier 同步
         try:
-            codi_test = importlib.import_module("CODI.runTest")
-        except Exception as exc:
-            logging.warning(f"跳过定期评测：无法导入 CODI.runTest ({exc})")
-            return control
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        self._barrier()
 
-        trainer = kwargs.get("trainer")
-        if trainer is None:
-            logging.warning("跳过定期评测：callback 未拿到 trainer")
-            return control
+        is_rank0 = (not self._is_dist()) or (state.is_world_process_zero if hasattr(state, "is_world_process_zero") else True)
 
-        eval_model_args = copy.deepcopy(self.model_args)
-        eval_data_args = copy.deepcopy(self.data_args)
-        eval_training_args = copy.deepcopy(self.training_args)
+        if is_rank0:
+            try:
+                # 延迟导入，避免训练阶段就引入测试栈
+                from test_multi_dataset import MultiDatasetEvaluator, ResultsManager
 
-        eval_data_args.data_name = eval_data_args.eval_data_name or eval_data_args.data_name
-        if eval_data_args.eval_batch_size:
-            eval_data_args.batch_size = eval_data_args.eval_batch_size
+                # 解包 DDP/FSDP
+                unwrapped = model.module if hasattr(model, "module") else model
 
-        do_print_flag = getattr(args, "test_print_predictions", False)
+                # 构造 evaluator（首次）
+                if self._evaluator is None:
+                    self._evaluator = MultiDatasetEvaluator(self.model_args, self.training_args_snapshot)
+                if self._results_manager is None:
+                    os.makedirs(self.result_dir, exist_ok=True)
+                    self._results_manager = ResultsManager(self.result_dir)
 
+                left_tokenizer = self._ensure_left_tokenizer()
+                ckpt_tag = f"{self.training_args_snapshot.expt_name}__step_{state.global_step}"
+                self._evaluator.attach_external_model(unwrapped, left_tokenizer, model_name=ckpt_tag)
+
+                was_training = unwrapped.training
+                unwrapped.eval()
+
+                eval_batch_size = int(getattr(self.training_args_snapshot, "periodic_test_batch_size", 1) or 1)
+
+                for ds in self.eval_datasets:
+                    try:
+                        result = self._evaluator.evaluate_dataset(ds, batch_size=eval_batch_size, save_latents=False)
+                        self._results_manager.save_run_results(
+                            model_name=ckpt_tag,
+                            dataset=ds,
+                            run_id=0,
+                            predictions=result["predictions"],
+                            accuracy=result["accuracy"],
+                            questions=result["questions"],
+                            answers=result["answers"],
+                            trajectory_stats=result.get("trajectory_stats"),
+                            latents=None,
+                            elapsed_time=result.get("elapsed_time"),
+                            token_stats=result.get("token_stats"),
+                            raw_outputs=None,
+                        )
+                        # 写一行 trainer 日志，方便 tensorboard 追踪
+                        try:
+                            if trainer is not None:
+                                trainer.log({f"eval/{ds}_acc": float(result["accuracy"]), f"eval/{ds}_step": state.global_step})
+                        except Exception:
+                            pass
+                    except Exception as exc:
+                        logging.warning(f"[PeriodicTest] 数据集 {ds} 评测失败: {exc}")
+                        import traceback; traceback.print_exc()
+
+                # 累积汇总（每次都重写 summary，方便随时查看）
+                try:
+                    self._results_manager.finalize()
+                except Exception as exc:
+                    logging.warning(f"[PeriodicTest] finalize 失败: {exc}")
+
+                if was_training:
+                    unwrapped.train()
+            except Exception as exc:
+                logging.warning(f"[PeriodicTest] 评测整体失败 step={state.global_step}: {exc}")
+                import traceback; traceback.print_exc()
+
+        # 评测完成后再次 empty_cache + barrier，确保其它 rank 不会先一步进入下一个 train step
         try:
-            trainer.model.eval()
-            acc = codi_test.evaluation_with_model(
-                trainer.model,
-                trainer.tokenizer,
-                eval_model_args,
-                eval_data_args,
-                eval_training_args,
-                do_print_flag,
-            )
-            trainer.log({"periodic_test_accuracy": acc, "periodic_test_step": state.global_step})
-            trainer.model.train()
-        except Exception as exc:
-            logging.warning(f"定期评测在 step {state.global_step} 失败：{exc}")
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        self._barrier()
         return control
 
 def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
