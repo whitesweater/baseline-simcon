@@ -35,6 +35,7 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 #   USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=True  -> codi+sircl
 USE_DECODER="${USE_DECODER:-True}"
 USE_TRAJECTORY_CONSISTENCY="${USE_TRAJECTORY_CONSISTENCY:-False}"
+TRAJECTORY_RADIUS_THRESHOLD="${TRAJECTORY_RADIUS_THRESHOLD:-2}"
 
 case "${USE_DECODER}-${USE_TRAJECTORY_CONSISTENCY}" in
 	True-True)   METHOD_TAG="simcot_sircl" ;;
@@ -93,7 +94,7 @@ CMD=(
 	--use_decoder "$USE_DECODER"
 	--use_trajectory_consistency "$USE_TRAJECTORY_CONSISTENCY"
 	--trajectory_space_type euclidean
-	--trajectory_radius_threshold 2
+	--trajectory_radius_threshold "$TRAJECTORY_RADIUS_THRESHOLD"
 	--trajectory_loss_factor 0.1
 	--inf_latent_iterations 6
 	--greedy True

@@ -729,10 +729,31 @@ def compute_batch_radius_stats(latents_TBD: torch.Tensor, training_args) -> dict
             curvature=getattr(training_args, 'trajectory_curvature', 1.0),
         )
         stats = tc.compute_stats(latents_TBD)
+        center = stats["center"].detach().float()
+        dist = stats["dist"].detach().float()
+        center_norm = torch.linalg.norm(center, dim=-1)
         return {
+            # Keep the same semantic keys as TrajectoryConsistencyLoss.compute_stats,
+            # but store compact JSON-safe summaries instead of huge raw tensors.
+            "center": {
+                "shape": list(center.shape),
+                "norm_mean": float(center_norm.mean().item()),
+                "norm_std": float(center_norm.std().item()) if center_norm.numel() > 1 else 0.0,
+                "norm_max": float(center_norm.max().item()),
+            },
+            "dist": {
+                "shape": list(dist.shape),
+                "min": float(dist.min().item()),
+                "max": float(dist.max().item()),
+                "mean": float(dist.mean().item()),
+                "std": float(dist.std().item()) if dist.numel() > 1 else 0.0,
+            },
             "radius_max": float(stats['radius_max'].item()),
             "radius_mean": float(stats['radius_mean'].item()),
+            "radius_std": float(stats['radius_std'].item()) if stats['radius_std'].numel() else 0.0,
+            "violation_count": int(stats['violation_count'].item()),
             "violation_rate": float(stats['violation_rate'].item()),
+            "radius_threshold": float(stats['radius_threshold'].item()),
             "threshold": float(stats['radius_threshold'].item()),
             "batch_size": int(latents_TBD.size(1)),
         }
@@ -1296,6 +1317,8 @@ class MultiDatasetEvaluator:
         """准备 batch 数据"""
         num_batches = math.ceil(len(questions) / batch_size)
         batches = []
+        bot_token_count = 1 if self.training_args.remove_eos else 2
+        max_question_length = max(1, self.training_args.model_max_length - bot_token_count)
         
         for i in range(num_batches):
             start = i * batch_size
@@ -1305,6 +1328,8 @@ class MultiDatasetEvaluator:
                 questions[start:end],
                 return_tensors="pt",
                 padding="longest",
+                truncation=True,
+                max_length=max_question_length,
             )
             
             # 添加 BOT token
@@ -1404,7 +1429,14 @@ class MultiDatasetEvaluator:
                     batch_radius = compute_batch_radius_stats(latents_TBD, self.training_args)
                     if batch_radius:
                         all_radius_stats.append(batch_radius)
-                        print(f"[Radius] batch={step} max={batch_radius['radius_max']:.4f} mean={batch_radius['radius_mean']:.4f} viol={batch_radius['violation_rate']:.4f}")
+                        print(
+                            f"[Radius] batch={step} "
+                            f"max={batch_radius['radius_max']:.4f} "
+                            f"mean={batch_radius['radius_mean']:.4f} "
+                            f"std={batch_radius['radius_std']:.4f} "
+                            f"viol_count={batch_radius['violation_count']} "
+                            f"viol_rate={batch_radius['violation_rate']:.4f}"
+                        )
                 
                 # 添加 EOT token
                 if self.training_args.remove_eos:
@@ -1472,16 +1504,21 @@ class MultiDatasetEvaluator:
             import numpy as np
             all_max = [s["radius_max"] for s in all_radius_stats]
             all_mean = [s["radius_mean"] for s in all_radius_stats]
+            all_std = [s["radius_std"] for s in all_radius_stats]
             all_viol = [s["violation_rate"] for s in all_radius_stats]
+            all_viol_count = [s["violation_count"] for s in all_radius_stats]
             total_samples = sum(s["batch_size"] for s in all_radius_stats)
             
             trajectory_stats = {
                 "num_batches": len(all_radius_stats),
                 "total_samples": total_samples,
-                "threshold": all_radius_stats[0]["threshold"],
+                "threshold": all_radius_stats[0]["radius_threshold"],
+                "radius_threshold": all_radius_stats[0]["radius_threshold"],
                 "radius_max": float(np.max(all_max)),
                 "radius_mean": float(np.mean(all_mean)),
                 "radius_mean_std": float(np.std(all_mean)),
+                "radius_std_mean": float(np.mean(all_std)),
+                "violation_count_total": int(np.sum(all_viol_count)),
                 "violation_rate_mean": float(np.mean(all_viol)),
                 "violation_rate_max": float(np.max(all_viol)),
                 "per_batch": all_radius_stats,  # 保留每个 batch 的详细数据

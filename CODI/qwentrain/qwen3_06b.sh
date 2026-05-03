@@ -7,7 +7,13 @@ source "${SCRIPT_DIR}/../config.env" || { echo "Error: config.env not found. Cop
 source "${CODI_VENV_PATH}"
 cd "${SCRIPT_DIR}/.."
 
-EXPT_NAME="qwen3_06b"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${CODI_GSM8K_AUG_CACHE_DIR}}"
+
+EXPT_NAME="${EXPT_NAME:-qwen3_06b}"
 SAVE_DIR="${CODI_SAVE_DIR}"
 LOG_DIR="${SAVE_DIR}/logs/${EXPT_NAME}-logs"
 MODEL_PATH="${CODI_QWEN3_0P6B_PATH}"
@@ -22,14 +28,16 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 #   USE_DECODER=False USE_TRAJECTORY_CONSISTENCY=True  -> codi+sircl
 USE_DECODER="${USE_DECODER:-True}"
 USE_TRAJECTORY_CONSISTENCY="${USE_TRAJECTORY_CONSISTENCY:-False}"
+TRAJECTORY_RADIUS_THRESHOLD="${TRAJECTORY_RADIUS_THRESHOLD:-2}"
 
 case "${USE_DECODER}-${USE_TRAJECTORY_CONSISTENCY}" in
-	True-True)   METHOD_TAG="simcot_sircl" ;;
-	True-False)  METHOD_TAG="simcot"        ;;
-	False-False) METHOD_TAG="codi"          ;;
-	False-True)  METHOD_TAG="codi_sircl"   ;;
+	True-True)   METHOD_TAG="simcot_sircl"; DEFAULT_DDP_FIND_UNUSED="False" ;;
+	True-False)  METHOD_TAG="simcot"       ; DEFAULT_DDP_FIND_UNUSED="True"  ;;
+	False-False) METHOD_TAG="codi"         ; DEFAULT_DDP_FIND_UNUSED="True"  ;;
+	False-True)  METHOD_TAG="codi_sircl"   ; DEFAULT_DDP_FIND_UNUSED="False" ;;
 	*) echo "[qwen3-train] ERROR: invalid USE_DECODER/USE_TRAJECTORY_CONSISTENCY combo: ${USE_DECODER}/${USE_TRAJECTORY_CONSISTENCY} (expect True/False)" >&2; exit 1 ;;
 esac
+DDP_FIND_UNUSED_PARAMETERS="${DDP_FIND_UNUSED_PARAMETERS:-${DEFAULT_DDP_FIND_UNUSED}}"
 
 EXPT_NAME="${EXPT_NAME}__${METHOD_TAG}"
 SAVE_DIR="${SAVE_DIR}/${METHOD_TAG}"
@@ -54,7 +62,7 @@ CMD=(
 	--dataloader_pin_memory True
 	--dataloader_persistent_workers True
 	--dataloader_prefetch_factor 2
-	--num_train_epochs 10
+	--num_train_epochs "${NUM_TRAIN_EPOCHS:-10}"
 	--learning_rate 3e-4
 	--max_grad_norm 1.0
 	--use_lora True
@@ -69,7 +77,7 @@ CMD=(
 	--warmup_ratio 0.05
 	--lr_scheduler_type cosine
 	--gradient_checkpointing True
-	--ddp_find_unused_parameters False
+	--ddp_find_unused_parameters "${DDP_FIND_UNUSED_PARAMETERS}"
 	--do_train
 	--report_to tensorboard
 	--num_latent 6
@@ -88,13 +96,14 @@ CMD=(
 	--use_decoder "${USE_DECODER}"
 	--use_trajectory_consistency "${USE_TRAJECTORY_CONSISTENCY}"
 	--trajectory_space_type euclidean
-	--trajectory_radius_threshold 2
+	--trajectory_radius_threshold "${TRAJECTORY_RADIUS_THRESHOLD}"
 	--trajectory_loss_factor 0.05
 	--inf_latent_iterations 6
 	--greedy True
 	--run_test_on_save "${RUN_TEST_ON_SAVE:-True}"
 	--periodic_test_datasets "${PERIODIC_TEST_DATASETS:-gsm8k}"
 	--periodic_test_batch_size "${PERIODIC_TEST_BATCH_SIZE:-32}"
+	"$@"
 )
 
 printf '[qwen3-train] command='
