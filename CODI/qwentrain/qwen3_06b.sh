@@ -55,7 +55,7 @@ CMD=(
 	--data_name icot
 	--seed 11
 	--model_max_length 512
-	--per_device_train_batch_size 96
+	--per_device_train_batch_size 32
 	--gradient_accumulation_steps 1
 	--bf16
 	--dataloader_num_workers 4
