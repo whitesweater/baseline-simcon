@@ -1,0 +1,98 @@
+
+================================================================================
+                    LATENT TRAJECTORY VISUALIZATION INTERPRETATION GUIDE
+                              图片解读指南
+================================================================================
+
+【图片类型说明】
+
+1. trajectory_2d_qX.png / trajectory_3d_qX.png
+   单题轨迹可视化，展示每个模型在第X题上的latent演化过程。
+
+2. comparison_sircl_vs_simcon.png
+   SIRCL vs SimCon 对比图，展示轨迹约束的效果。
+
+3. comparison_codi_sircl_vs_codi.png  
+   CODI+SIRCL vs CODI 对比图，展示组合方法的效果。
+
+--------------------------------------------------------------------------------
+
+【如何判断哪个模型更好？】
+
+✅ 更好的模型（使用约束方法）应该具有：
+
+1. 更紧密的聚集 (Tighter Clustering)
+   - 在"以Final为中心"的图中，所有点更靠近中心
+   - 参考圆越小，说明latent更集中
+   - 指标：eucl_dist_to_final_mean 越小越好
+
+2. 更短的路径长度 (Shorter Path Length)
+   - 轨迹线更短，没有长距离的跳跃
+   - 从iter1到iter7的总路程更短
+   - 指标：path_length_mean 越小越好
+
+3. 更平滑的轨迹 (Smoother Trajectory)
+   - 轨迹线更直，没有大角度的折返
+   - 每一步的方向更一致
+   - 指标：trajectory_smoothness_mean 越大越好
+
+4. 更快的收敛 (Faster Convergence)
+   - 早期iteration就开始靠近Final
+   - 收敛曲线下降更快
+   - 指标：convergence_rate_mean 更负越好
+
+5. 更高的余弦相似度 (Higher Cosine Similarity)
+   - 中间token与Final token的方向更一致
+   - 指标：cos_sim_to_final_mean 越大越好
+
+--------------------------------------------------------------------------------
+
+【图中符号说明】
+
+- ★ (大星星): Final token (iteration 7)，这是用于生成答案的token
+- ● ■ ▲ ◆ (小点): Intermediate tokens (iterations 1-6)，思考过程的中间状态
+- 实线: SIRCL/CODI_SIRCL（我们的方法）
+- 虚线: SimCon/CODI（基线方法）
+- 虚线圆圈: 参考距离，帮助判断聚集程度
+
+--------------------------------------------------------------------------------
+
+【颜色编码】
+
+- 🔴 红色 (codi): 基线CODI模型
+- 🟢 绿色 (codi_sircl): CODI + SIRCL（我们的方法）
+- 🟠 橙色 (simcon): SimCon基线
+- 🔵 蓝色 (sircl): SIRCL（我们的方法）
+
+颜色深浅表示iteration顺序：浅色=早期，深色=后期
+
+--------------------------------------------------------------------------------
+
+【预期结果】
+
+基于约束方法的设计目标，我们预期：
+
+1. sircl > simcon：
+   - SIRCL的轨迹更紧凑
+   - SIRCL的路径更短
+   - SIRCL收敛更快
+
+2. codi_sircl > codi：
+   - CODI+SIRCL组合效果更好
+   - 聚集度更高
+   - 轨迹更平滑
+
+--------------------------------------------------------------------------------
+
+【统计指标对照表】
+
+| 指标 | 含义 | 好的方向 | 我们的优势 |
+|------|------|----------|------------|
+| cos_sim_to_final_mean | 与Final的余弦相似度 | 越大越好 | 更高相似度=更一致的方向 |
+| eucl_dist_to_final_mean | 到Final的欧氏距离 | 越小越好 | 更小距离=更紧密聚集 |
+| cluster_compactness_mean | 聚类紧密度 | 越小越好 | 所有token更集中 |
+| trajectory_smoothness_mean | 轨迹平滑度 | 越大越好 | 更平滑=更稳定的思考 |
+| path_length_mean | 路径总长度 | 越小越好 | 更短路径=更高效的推理 |
+| convergence_rate_mean | 收敛速率 | 越负越好 | 更快收敛到答案 |
+
+================================================================================

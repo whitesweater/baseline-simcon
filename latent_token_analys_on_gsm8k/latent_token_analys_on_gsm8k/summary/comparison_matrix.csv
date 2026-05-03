@@ -1,0 +1,5 @@
+model,gsm8k_mean,gsm8k_count,avg_accuracy
+sircl,0.5588,1,0.5588
+codi_sircl,0.5572,1,0.5572
+simcon,0.5315,1,0.5315
+codi,0.5254,1,0.5254

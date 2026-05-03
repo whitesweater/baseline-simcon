@@ -1,0 +1,5 @@
+model,acc_mean,acc_std,num_runs,total_correct,samples_per_run
+sircl,0.5588,,1,737,1319
+codi_sircl,0.5572,,1,735,1319
+simcon,0.5315,,1,701,1319
+codi,0.5254,,1,693,1319
