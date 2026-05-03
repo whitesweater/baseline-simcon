@@ -9,7 +9,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from transformers.models.gpt2.modeling_gpt2 import GPT2Block
@@ -38,9 +37,18 @@ import yaml
 import json
 import argparse
 import functools
+import re
 from datetime import datetime
 from datasets import load_dataset, concatenate_datasets
 from utils import Config, set_seed
+
+
+def dist_ready():
+    return dist.is_available() and dist.is_initialized()
+
+
+def unwrap_model(model):
+    return model.module if hasattr(model, "module") else model
 
 
 DATASET_CONFIGS = {
@@ -170,6 +178,64 @@ def expand_datasets(dataset_args):
     return unique
 
 
+def normalize_eval_answer(answer):
+    text = str(answer).replace(",", "").strip()
+    if "####" in text:
+        text = text.split("####")[-1].strip()
+    return text
+
+
+def extract_last_number(text):
+    matches = re.findall(r"[-+]?(?:\d+\.\d+|\d+|\.\d+)", text.replace(",", ""))
+    if not matches:
+        return text.replace(",", "").strip()
+    value = matches[-1]
+    sign = ""
+    if value.startswith(("+", "-")):
+        sign = "-" if value[0] == "-" else ""
+        value = value[1:]
+    if "." in value:
+        left, right = value.split(".", 1)
+        left = left.lstrip("0") or "0"
+        right = right.rstrip("0")
+        normalized = f"{left}.{right}" if right else left
+    else:
+        normalized = value.lstrip("0") or "0"
+    if normalized == "0":
+        return "0"
+    return sign + normalized
+
+
+def extract_answer_output(text, extraction):
+    text = text.strip()
+    if extraction == "numeric_last":
+        for marker in ("####", "###"):
+            if marker in text:
+                text = text.split(marker)[-1].strip()
+                break
+        boxed = re.findall(r"\\boxed\{([^{}]+)\}", text)
+        if boxed:
+            text = boxed[-1]
+        return extract_last_number(text)
+    return text.split("#")[-1].replace(",", "").strip()
+
+
+def format_eval_question(question, prompt_template):
+    question = str(question).strip()
+    if prompt_template in (None, "", "plain", "coconut"):
+        return question
+    if prompt_template == "answer":
+        return f"Question: {question}\nAnswer:"
+    if prompt_template == "step_by_step":
+        return f"Question: {question}\nLet's think step by step."
+    if prompt_template == "hash_final":
+        return (
+            f"Question: {question}\n"
+            "Let's think step by step. At the end, write the final answer after ####."
+        )
+    raise ValueError(f"Unknown eval_prompt_template: {prompt_template}")
+
+
 def evaluate_single_dataset(
     parallel_model, tokenizer, configs, dataset_path, dataset_name,
     latent_id, start_id, end_id, collator, rank, world_size,
@@ -178,12 +244,41 @@ def evaluate_single_dataset(
     with open(dataset_path) as f:
         data = json.load(f)
 
+    eval_max_size = getattr(configs, 'eval_max_size', None)
+    if eval_max_size:
+        data = data[: int(eval_max_size)]
+
+    prompt_template = getattr(configs, 'eval_prompt_template', 'plain')
+    tokenization_path = dataset_path
+    if prompt_template not in (None, "", "plain", "coconut") or eval_max_size:
+        cache_root = os.path.join(configs.save_path, configs.name, "_prompt_cache")
+        os.makedirs(cache_root, exist_ok=True)
+        safe_dataset = re.sub(r"[^A-Za-z0-9_.-]+", "_", dataset_name)
+        safe_prompt = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(prompt_template or "plain"))
+        tokenization_path = os.path.join(
+            cache_root,
+            f"{safe_dataset}_{safe_prompt}_{len(data)}.json",
+        )
+        if rank == 0:
+            formatted_data = []
+            for row in data:
+                formatted = dict(row)
+                formatted["question"] = format_eval_question(
+                    row["question"],
+                    prompt_template,
+                )
+                formatted_data.append(formatted)
+            with open(tokenization_path, "w", encoding="utf-8") as out_f:
+                json.dump(formatted_data, out_f, ensure_ascii=False, indent=2)
+        if dist_ready():
+            dist.barrier()
+
     question_val = [d["question"] for d in data]
-    answers_val = [str(d["answer"]).replace(",", "").strip() for d in data]
+    answers_val = [normalize_eval_answer(d["answer"]) for d in data]
     cot_val = ["\n".join(d.get("steps", [])) for d in data]
 
     base_dataset_valid = get_dataset(
-        dataset_path, tokenizer, max_size=32 if configs.debug else 100000000
+        tokenization_path, tokenizer, max_size=32 if configs.debug else 100000000
     )
 
     if "math500" in dataset_path.lower() or "aime" in dataset_path.lower():
@@ -203,16 +298,37 @@ def evaluate_single_dataset(
         no_special_marker=configs.cot or configs.no_cot or configs.no_thoughts,
     )
 
+    if world_size > 1:
+        rank_indices = list(range(rank, len(dataset_gen_val), world_size))
+        eval_dataset = torch.utils.data.Subset(dataset_gen_val, rank_indices)
+    else:
+        eval_dataset = dataset_gen_val
+
+    def left_pad_generation_collator(features):
+        max_length = max(len(feature["input_ids"]) for feature in features)
+        input_ids = []
+        attention_mask = []
+        for feature in features:
+            pad_len = max_length - len(feature["input_ids"])
+            input_ids.append([tokenizer.pad_token_id] * pad_len + feature["input_ids"])
+            attention_mask.append([0] * pad_len + feature["attention_mask"])
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "idx": torch.tensor([feature["idx"] for feature in features], dtype=torch.long),
+        }
+
+    eval_batch_size = getattr(configs, 'eval_batch_size', 1)
+    eval_collator = left_pad_generation_collator if eval_batch_size > 1 else collator
     valid_gen_dataloader = torch.utils.data.DataLoader(
-        dataset_gen_val,
+        eval_dataset,
         num_workers=1,
         pin_memory=True,
-        batch_size=1,
-        collate_fn=collator,
-        sampler=DistributedSampler(dataset_gen_val, shuffle=False),
+        batch_size=eval_batch_size,
+        collate_fn=eval_collator,
     )
 
-    total_length = len(valid_gen_dataloader)
+    total_length = len(eval_dataset)
     pbar = tqdm(
         colour="blue", desc=f"{dataset_name}", total=total_length,
         dynamic_ncols=True, disable=(rank != 0)
@@ -223,9 +339,17 @@ def evaluate_single_dataset(
     total = torch.tensor(0, device=rank)
 
     with torch.no_grad():
-        parallel_model.module.eval()
+        generation_model = unwrap_model(parallel_model)
+        generation_model.eval()
+        model_config = getattr(generation_model, "config", None)
+        model_max_length = None
+        for attr in ("max_position_embeddings", "n_positions"):
+            value = getattr(model_config, attr, None)
+            if isinstance(value, int) and value > 0:
+                model_max_length = value
+                break
         for idx, batch in enumerate(valid_gen_dataloader):
-            test_idx = batch["idx"][0]
+            test_indices = batch["idx"].detach().cpu().tolist()
 
             batch = {
                 k: v.to(rank)
@@ -233,44 +357,68 @@ def evaluate_single_dataset(
                 if v is not None and k not in ["idx", "position_ids"]
             }
 
-            assert len(batch["input_ids"]) == 1
-            answer = answers_val[test_idx.cpu().item()]
-            answer_cot = cot_val[test_idx.cpu().item()]
+            batch_count = len(test_indices)
+            total += batch_count
 
-            total += 1
+            effective_max_new_tokens = max_new_tokens
+            if model_max_length is not None:
+                input_len = int(batch["input_ids"].shape[-1])
+                if input_len >= model_max_length:
+                    keep_len = max(1, model_max_length - 1)
+                    for key in ("input_ids", "attention_mask"):
+                        if key in batch and batch[key].dim() == 2:
+                            batch[key] = batch[key][:, -keep_len:]
+                    input_len = int(batch["input_ids"].shape[-1])
+                effective_max_new_tokens = max(
+                    1, min(max_new_tokens, model_max_length - input_len)
+                )
 
-            outputs = parallel_model.module.generate(
+            outputs = generation_model.generate(
                 **batch,
-                max_new_tokens=max_new_tokens,
+                max_new_tokens=effective_max_new_tokens,
                 synced_gpus=not configs.only_eval,
             )
 
-            text_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            answer_output = text_output.split("#")[-1].replace(",", "").strip()
-            cot_output = ("\n".join(text_output.split("\n")[1:])).split("#")[0].strip()
+            if getattr(configs, 'decode_generated_only', False):
+                prompt_width = int(batch["input_ids"].shape[-1])
+                decode_tokens = outputs[:, prompt_width:]
+            else:
+                decode_tokens = outputs
+            text_outputs = tokenizer.batch_decode(decode_tokens, skip_special_tokens=True)
+            for offset, (test_idx, text_output) in enumerate(zip(test_indices, text_outputs)):
+                answer = answers_val[test_idx]
+                answer_cot = cot_val[test_idx]
+                answer_output = extract_answer_output(
+                    text_output,
+                    getattr(configs, 'answer_extraction', 'hash'),
+                )
+                cot_output = ("\n".join(text_output.split("\n")[1:])).split("#")[0].strip()
 
-            if idx < 3 and rank == 0:
-                print(f"\n[{dataset_name}] Example {idx+1}:")
-                print(f"  Question: {question_val[test_idx.cpu().item()][:100]}...")
-                print(f"  Expected: '{answer}'")
-                print(f"  Got:      '{answer_output}'")
+                if idx == 0 and offset < 3 and rank == 0:
+                    print(f"\n[{dataset_name}] Example {offset+1}:")
+                    print(f"  Question: {question_val[test_idx][:100]}...")
+                    print(f"  Expected: '{answer}'")
+                    print(f"  Got:      '{answer_output}'")
 
-            cor += (answer_output == answer)
-            cor_cot += (cot_output == answer_cot)
+                cor += (answer_output == answer)
+                cor_cot += (cot_output == answer_cot)
 
-            pbar.update(1)
+            pbar.update(batch_count)
             acc = float(cor.detach().float() / total.detach().float())
             pbar.set_description(f"{dataset_name} Acc: {acc:.4f}")
 
     pbar.close()
 
-    dist.all_reduce(cor, op=dist.ReduceOp.SUM)
-    dist.all_reduce(cor_cot, op=dist.ReduceOp.SUM)
-    dist.all_reduce(total, op=dist.ReduceOp.SUM)
+    if dist_ready():
+        dist.all_reduce(cor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(cor_cot, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total, op=dist.ReduceOp.SUM)
 
     return {
         'dataset': dataset_name,
         'dataset_path': dataset_path,
+        'eval_prompt_template': prompt_template,
+        'eval_max_size': eval_max_size,
         'accuracy': cor.item() / total.item() if total.item() > 0 else 0,
         'correct': int(cor.item()),
         'total': int(total.item()),
@@ -286,10 +434,15 @@ def main():
                              "Default: uses val_path from config.")
     args = parser.parse_args()
 
-    dist.init_process_group("nccl")
-    local_rank = int(os.environ["LOCAL_RANK"])
-    rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
+    if {"LOCAL_RANK", "RANK", "WORLD_SIZE"} <= set(os.environ):
+        dist.init_process_group("nccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+    else:
+        local_rank = 0
+        rank = 0
+        world_size = 1
     torch.cuda.set_device(local_rank)
 
     with open(args.config_file) as f:
@@ -368,8 +521,8 @@ def main():
     if getattr(configs, 'bf16', False):
         model.to(torch.bfloat16)
 
-    # Eval always uses DDP (simpler, avoids FSDP bugs in eval)
-    parallel_model = DDP(model, device_ids=[rank])
+    # Eval uses plain single-process mode when launched without torchrun.
+    parallel_model = DDP(model, device_ids=[rank]) if world_size > 1 else model
     del model
 
     if rank == 0:
@@ -454,13 +607,19 @@ def main():
                 'model': configs.load_model_path,
                 'model_id': configs.model_id,
                 'mode': 'coconut' if configs.coconut else 'cot',
+                'answer_extraction': getattr(configs, 'answer_extraction', 'hash'),
+                'decode_generated_only': getattr(configs, 'decode_generated_only', False),
+                'eval_batch_size': getattr(configs, 'eval_batch_size', 1),
+                'eval_prompt_template': getattr(configs, 'eval_prompt_template', 'plain'),
+                'eval_max_size': getattr(configs, 'eval_max_size', None),
                 'timestamp': datetime.now().isoformat(),
                 'results': all_results,
                 'average_accuracy': avg_acc,
             }, f, indent=2)
         print(f"\nResults saved to: {results_file}")
 
-    dist.barrier()
+    if dist_ready():
+        dist.barrier()
 
 
 if __name__ == "__main__":

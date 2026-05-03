@@ -1,0 +1,49 @@
+# Smoke-test base GPT-2 on GSM8K with a direct Answer prompt.
+
+project: coconut
+save_path: /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/myy_coconut_gsm8k_cot/eval_results
+name: base-gpt2-gsm8k-smoke-answer-fp32
+
+only_eval: True
+
+coconut: False
+cot: True
+no_thoughts: False
+no_cot: False
+coconutgpt: True
+
+c_thought: 0
+epochs_per_stage: 1
+max_latent_stage: 0
+pad_latent_to_max: True
+
+save_only_improve: True
+uniform_prob: 0.0
+
+model_id: /hpc2hdd/home/yhao481/jhupload/proj/baseline/CODI_rebuttal_runs/rebuttal_20260325/multimodel_gsm8k_math500_aime_v1/models/gpt2
+load_model_path: None
+
+seed: 0
+resume: 0
+bf16: False
+
+train_path: ./data/gsm_train.json
+val_path: ./data/gsm_test.json
+
+reset_optimizer: False
+batch_size_training: 1
+eval_batch_size: 16
+decode_generated_only: True
+answer_extraction: numeric_last
+eval_prompt_template: answer
+eval_max_size: 128
+debug: False
+gradient_accumulation_steps: 1
+num_epochs: 25
+lr: !!float "1e-4"
+weight_decay: 0.01
+
+mode: coconut_baseline
+training_method: only_base_causallm
+wandb: False
+train_or_eval: eval
